@@ -1,7 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import * as winston from 'winston';
-import * as DailyRotateFile from 'winston-daily-rotate-file';
+import 'winston-daily-rotate-file';
 
 @Global()
 @Module({
@@ -26,19 +26,18 @@ import * as DailyRotateFile from 'winston-daily-rotate-file';
 
         // Add file transport in production
         if (configService.get('nodeEnv') === 'production') {
-          transports.push(
-            new DailyRotateFile({
-              filename: 'logs/application-%DATE%.log',
-              datePattern: 'YYYY-MM-DD',
-              zippedArchive: true,
-              maxSize: '20m',
-              maxFiles: '14d',
-              format: winston.format.combine(
-                winston.format.timestamp(),
-                winston.format.json(),
-              ),
-            }),
-          );
+          const fileTransport = new winston.transports.DailyRotateFile({
+            filename: 'logs/application-%DATE%.log',
+            datePattern: 'YYYY-MM-DD',
+            zippedArchive: true,
+            maxSize: '20m',
+            maxFiles: '14d',
+            format: winston.format.combine(
+              winston.format.timestamp(),
+              winston.format.json(),
+            ),
+          });
+          transports.push(fileTransport);
         }
 
         return winston.createLogger({

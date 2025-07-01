@@ -14,8 +14,11 @@ export const validationSchema = Joi.object({
   DB_NAME: Joi.string().default('family_series_track'),
   
   // JWT
-  JWT_SECRET: Joi.string().default('super-secret-key'),
-  JWT_EXPIRES_IN: Joi.string().default('24h'),
+  JWT_SECRET: Joi.string().required(),
+  JWT_EXPIRES_IN: Joi.string().default('15m'),
+  
+  // TMDB
+  TMDB_API_KEY: Joi.string().required(),
   
   // External APIs
   AIDBOX_URL: Joi.string().optional(),

@@ -5,6 +5,7 @@ import { RegisterDto } from './dto/register.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { Request } from 'express';
 import { LoginDto } from './dto/login.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -50,38 +51,52 @@ export class AuthController {
   }
 
   @Post('refresh')
-  @HttpCode(200)
-  @ApiOperation({ summary: 'Refrescar tokens de acceso' })
-  @ApiBody({
+  @ApiOperation({ summary: 'Renovar tokens de autenticación' })
+  @ApiBody({ type: RefreshTokenDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Tokens renovados exitosamente',
     schema: {
-      type: 'object',
       properties: {
-        refreshToken: {
-          type: 'string',
-          example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Tokens refreshed successfully' },
+        data: {
+          type: 'object',
+          properties: {
+            accessToken: { type: 'string' },
+            refreshToken: { type: 'string' },
+            user: {
+              type: 'object',
+              properties: {
+                id: { type: 'number' },
+                username: { type: 'string' },
+                name: { type: 'string' },
+                lastname: { type: 'string' },
+                email: { type: 'string' },
+                avatar_url: { type: 'string', nullable: true },
+                role: { type: 'string' },
+                email_verified: { type: 'boolean' },
+              },
+            },
+          },
         },
       },
     },
   })
-  @ApiResponse({
-    status: 200,
-    description: 'Tokens refrescados correctamente',
-    schema: {
-      example: {
-        accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-        refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-      },
-    },
-  })
-  @ApiResponse({ status: 401, description: 'Token de refresco inválido' })
-  refreshTokens(
-    @Body('refreshToken') refreshToken: string,
-    @Body('userId') userId: number,
-    @Headers('user-agent') userAgent: string,
-    @Req() request: Request
+  @ApiResponse({ status: 401, description: 'Token de refresco inválido o expirado' })
+  async refreshTokens(
+    @Body() refreshTokenDto: RefreshTokenDto,
+    @Req() request: Request,
   ) {
-    const ipAddress = request.ip;
-    return this.authService.refreshTokens(userId, refreshToken, userAgent, ipAddress);
+    // Obtener información del dispositivo y dirección IP
+    const deviceInfo = request.headers['user-agent'] || '';
+    const ipAddress = request.ip || '';
+
+    return this.authService.refreshTokens(
+      refreshTokenDto.refreshToken,
+      deviceInfo,
+      ipAddress,
+    );
   }
 
   @Post('logout')

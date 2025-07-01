@@ -12,6 +12,8 @@ import { HealthModule } from '@/modules/health/health.module';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { UsersModule } from '@/modules/users/users.module';
 import { NotificationsModule } from '@/modules/notifications/notifications.module';
+import { GroupsModule } from '@/modules/groups/groups.module';
+import { SeriesModule } from '@/modules/series/series.module';
 import { DevelopmentModule } from '@/modules/development/development.module';
 
 // Shared modules
@@ -52,10 +54,14 @@ import { validationSchema } from '@/config/validation';
     AuthModule,
     UsersModule,
     NotificationsModule,
+    GroupsModule,
+    SeriesModule,
     DevelopmentModule,
     
     // Shared modules
     SharedModule,
   ],
+  controllers: [],
+  providers: [],
 })
 export class AppModule {} 

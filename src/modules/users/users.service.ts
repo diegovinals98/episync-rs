@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 import * as bcrypt from 'bcryptjs';
+import { SearchUsersDto } from './dto/search-users.dto';
 
 @Injectable()
 export class UsersService {
@@ -91,5 +92,45 @@ export class UsersService {
       reset_password_token: null,
       reset_password_expires: null,
     });
+  }
+
+  async searchUsers(searchDto: SearchUsersDto) {
+    const { q, page = 1, limit = 10 } = searchDto;
+    const offset = (page - 1) * limit;
+
+    // Crear la consulta base con LIKE para búsqueda en múltiples campos
+    const queryBuilder = this.usersRepository.createQueryBuilder('user')
+      .where(
+        'user.name LIKE :searchTerm OR user.lastname LIKE :searchTerm OR user.username LIKE :searchTerm OR user.email LIKE :searchTerm',
+        { searchTerm: `%${q}%` }
+      )
+      .orderBy('user.name', 'ASC')
+      .addOrderBy('user.lastname', 'ASC');
+
+    // Obtener el total de resultados
+    const total = await queryBuilder.getCount();
+
+    // Obtener los resultados paginados
+    const users = await queryBuilder
+      .select([
+        'user.id',
+        'user.username',
+        'user.name',
+        'user.lastname',
+        'user.email',
+        'user.avatar_url',
+        'user.created_at',
+        'user.updated_at'
+      ])
+      .skip(offset)
+      .take(limit)
+      .getMany();
+
+    return {
+      data: users,
+      total,
+      page,
+      limit,
+    };
   }
 } 

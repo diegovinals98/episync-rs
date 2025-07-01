@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
@@ -109,22 +109,66 @@ export class AuthService {
     };
   }
 
-  async refreshTokens(userId: number, refreshToken: string, deviceInfo?: string, ipAddress?: string) {
-    // Validar el refresh token
-    const isValid = await this.refreshTokenService.validateRefreshToken(userId, refreshToken);
-    
-    if (!isValid) {
-      throw new UnauthorizedException('Token de refresco inválido');
+  async refreshTokens(refreshToken: string, deviceInfo?: string, ipAddress?: string) {
+    try {
+      // Validar y rotar el token
+      const { userId, newToken } = await this.refreshTokenService.validateAndRotateToken(
+        refreshToken,
+        deviceInfo,
+        ipAddress
+      );
+      
+      // Obtener el usuario
+      const user = await this.usersService.findById(userId);
+      
+      // Generar un nuevo access token
+      const payload = {
+        sub: userId,
+        id: userId,
+        username: user.username,
+        name: user.name,
+        lastname: user.lastname,
+        email: user.email,
+        avatar_url: user.avatar_url,
+        role: user.role,
+        email_verified: user.email_verified
+      };
+      
+      const accessToken = await this.jwtService.signAsync(
+        payload,
+        {
+          secret: this.configService.get('jwt.secret'),
+          expiresIn: this.configService.get('jwt.expiresIn'),
+        },
+      );
+      
+      // Actualizar último login
+      await this.usersService.updateLastLogin(userId);
+      
+      return {
+        success: true,
+        message: 'Tokens refreshed successfully',
+        data: {
+          accessToken,
+          refreshToken: newToken,
+          user: {
+            id: user.id,
+            username: user.username,
+            name: user.name,
+            lastname: user.lastname,
+            email: user.email,
+            avatar_url: user.avatar_url,
+            role: user.role,
+            email_verified: user.email_verified,
+          },
+        },
+      };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      throw new UnauthorizedException('Failed to refresh tokens');
     }
-    
-    // Revocar el token anterior
-    await this.refreshTokenService.revokeRefreshToken(userId, refreshToken);
-    
-    // Generar nuevos tokens
-    const user = await this.usersService.findById(userId);
-    const tokens = await this.getTokens(userId, user.username, deviceInfo, ipAddress);
-    
-    return tokens;
   }
 
   async logout(userId: number, refreshToken: string) {

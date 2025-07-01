@@ -4,17 +4,18 @@ export default () => ({
   
   // Database
   database: {
-    host: process.env.DB_HOST,
-    port: parseInt(process.env.DB_PORT, 10) || 3306,
-    username: process.env.DB_USERNAME,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
+    host: process.env.DATABASE_HOST || 'localhost',
+    port: parseInt(process.env.DATABASE_PORT) || 3306,
+    username: process.env.DATABASE_USERNAME || 'root',
+    password: process.env.DATABASE_PASSWORD || 'password',
+    database: process.env.DATABASE_NAME || 'family_series_track',
+    synchronize: process.env.DATABASE_SYNCHRONIZE === 'true',
   },
   
   // JWT
   jwt: {
-    secret: process.env.JWT_SECRET || 'super-secret-key',
-    expiresIn: process.env.JWT_EXPIRES_IN || '24h',
+    secret: process.env.JWT_SECRET || 'your-secret-key',
+    expiresIn: process.env.JWT_EXPIRES_IN || '15m',
   },
   
   // External APIs
@@ -49,5 +50,9 @@ export default () => ({
   throttler: {
     ttl: parseInt(process.env.THROTTLER_TTL, 10) || 60000,
     limit: parseInt(process.env.THROTTLER_LIMIT, 10) || 100,
+  },
+  
+  tmdb: {
+    apiKey: process.env.TMDB_API_KEY || 'your-tmdb-api-key',
   },
 }); 
