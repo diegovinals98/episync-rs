@@ -274,11 +274,21 @@ export class GroupsController {
           items: {
             type: "object",
             properties: {
-              id: { type: "number", example: 1 },
+              id: {
+                type: "number",
+                example: 1,
+                description: "ID interno de la BD",
+              },
+              tmdb_id: {
+                type: "number",
+                example: 1396,
+                description: "ID de TMDB",
+              },
               name: { type: "string", example: "Breaking Bad" },
               poster_url: {
                 type: "string",
-                example: "https://example.com/breaking-bad-poster.jpg",
+                example:
+                  "https://image.tmdb.org/t/p/w500/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
               },
               episodes_count: { type: "number", example: 62 },
               status: { type: "string", example: "Completed" },
@@ -379,13 +389,26 @@ export class GroupsController {
         success: { type: "boolean", example: true },
         message: {
           type: "string",
-          example: "Series added to group successfully",
+          example: "Serie añadida al grupo correctamente",
         },
         data: {
           type: "object",
           properties: {
-            id: { type: "number", example: 1 },
-            series_id: { type: "number", example: 1399 },
+            id: {
+              type: "number",
+              example: 1,
+              description: "ID de la relación group_series",
+            },
+            series_id: {
+              type: "number",
+              example: 5,
+              description: "ID interno de la serie en BD",
+            },
+            tmdb_id: {
+              type: "number",
+              example: 1399,
+              description: "ID de TMDB",
+            },
             series_name: { type: "string", example: "Game of Thrones" },
             added_at: {
               type: "string",
@@ -414,8 +437,122 @@ export class GroupsController {
 
     return {
       success: true,
-      message: "Series added to group successfully",
+      message: "Serie añadida al grupo correctamente",
       data: result,
+    };
+  }
+
+  @Get(":groupId/series/:seriesId/progress")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Obtener progreso de los miembros en una serie" })
+  @ApiResponse({
+    status: 200,
+    description: "Progreso de los miembros obtenido exitosamente",
+    schema: {
+      properties: {
+        success: { type: "boolean", example: true },
+        data: {
+          type: "object",
+          properties: {
+            series_id: { type: "number", example: 1 },
+            tmdb_id: { type: "number", example: 4607 },
+            members_progress: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  user_id: { type: "number", example: 14 },
+                  username: { type: "string", example: "usuario1" },
+                  full_name: { type: "string", example: "Usuario Uno" },
+                  highest_season: { type: "number", example: 3 },
+                  highest_episode: { type: "number", example: 8 },
+                  total_episodes_watched: { type: "number", example: 25 },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: "No autorizado" })
+  @ApiResponse({ status: 404, description: "Grupo o serie no encontrado" })
+  async getSeriesProgress(
+    @Param("groupId", ParseIntPipe) groupId: number,
+    @Param("seriesId", ParseIntPipe) seriesId: number,
+    @Req() request: Request
+  ) {
+    const userId = request.user["id"];
+    const progress = await this.groupsService.getSeriesProgress(
+      groupId,
+      seriesId,
+      userId
+    );
+
+    return {
+      success: true,
+      data: progress,
+    };
+  }
+
+  @Get(":groupId/series/:seriesId/season/:seasonNumber/episodes-watched")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: "Obtener episodios vistos de una temporada por el usuario",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Episodios vistos obtenidos exitosamente",
+    schema: {
+      properties: {
+        success: { type: "boolean", example: true },
+        data: {
+          type: "object",
+          properties: {
+            series_id: { type: "number", example: 1 },
+            season_number: { type: "number", example: 1 },
+            episodes_watched: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  episode_id: { type: "number", example: 333924 },
+                  episode_number: { type: "number", example: 1 },
+                  season_number: { type: "number", example: 1 },
+                  watched_at: {
+                    type: "string",
+                    format: "date-time",
+                    example: "2025-01-02T11:38:52.712Z",
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: "No autorizado" })
+  @ApiResponse({ status: 404, description: "Grupo o serie no encontrado" })
+  async getSeasonEpisodesWatched(
+    @Param("groupId", ParseIntPipe) groupId: number,
+    @Param("seriesId", ParseIntPipe) seriesId: number,
+    @Param("seasonNumber", ParseIntPipe) seasonNumber: number,
+    @Req() request: Request
+  ) {
+    const userId = request.user["id"];
+    const episodesWatched = await this.groupsService.getSeasonEpisodesWatched(
+      groupId,
+      seriesId,
+      seasonNumber,
+      userId
+    );
+
+    return {
+      success: true,
+      data: episodesWatched,
     };
   }
 }

@@ -1,8 +1,16 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { User } from '../../users/entities/user.entity';
-import { Episode } from './episode.entity';
+import { User } from "@/modules/users/entities/user.entity";
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from "typeorm";
+import { Episode } from "./episode.entity";
 
-@Entity('user_episodes')
+@Entity("user_episodes")
 export class UserEpisode {
   @PrimaryGeneratedColumn()
   id: number;
@@ -19,21 +27,23 @@ export class UserEpisode {
   @Column({ default: true })
   watched: boolean;
 
-  @Column({ type: 'decimal', precision: 3, scale: 1, nullable: true })
+  @Column({ type: "decimal", precision: 3, scale: 1, nullable: true })
   rating: number;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: "text", nullable: true })
   comment: string;
 
-  @CreateDateColumn({ type: 'timestamp' })
+  @CreateDateColumn({ type: "timestamp" })
   watched_at: Date;
 
-  @UpdateDateColumn({ type: 'timestamp' })
+  @UpdateDateColumn({ type: "timestamp" })
   updated_at: Date;
 
   @ManyToOne(() => User)
+  @JoinColumn({ name: "user_id" })
   user: User;
 
   @ManyToOne(() => Episode)
+  @JoinColumn({ name: "episode_id" })
   episode: Episode;
-} 
+}

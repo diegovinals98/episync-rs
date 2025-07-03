@@ -1,8 +1,15 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  NotFoundException,
+  forwardRef,
+} from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { Series } from "../series/entities/series.entity";
+import { UserEpisode } from "../series/entities/user-episode.entity";
 import { UsersService } from "../users/users.service";
+import { WebSocketsGateway } from "../websockets/websockets.gateway";
 import { AddSeriesDto } from "./dto/add-series.dto";
 import { CreateGroupDto } from "./dto/create-group.dto";
 import { GroupActivity } from "./entities/group-activity.entity";
@@ -23,7 +30,11 @@ export class GroupsService {
     private groupActivityRepository: Repository<GroupActivity>,
     @InjectRepository(Series)
     private seriesRepository: Repository<Series>,
-    private usersService: UsersService
+    private usersService: UsersService,
+    @Inject(forwardRef(() => WebSocketsGateway))
+    private websocketsGateway: WebSocketsGateway,
+    @InjectRepository(UserEpisode)
+    private userEpisodeRepository: Repository<UserEpisode>
   ) {}
 
   async getUserGroups(userId: number) {
@@ -276,7 +287,8 @@ export class GroupsService {
     const formattedSeries = groupSeries.map((gs) => {
       const series = gs.series;
       return {
-        id: series.id,
+        id: series.id, // ID interno de la BD
+        tmdb_id: series.tmdb_id, // ID de TMDB
         name: series.name,
         poster_url: series.poster_path
           ? `https://image.tmdb.org/t/p/w500${series.poster_path}`
@@ -338,7 +350,19 @@ export class GroupsService {
     userId: number,
     addSeriesDto: AddSeriesDto
   ) {
-    const { seriesId, addedByUserId } = addSeriesDto;
+    const {
+      tmdb_id,
+      name,
+      overview,
+      poster_path,
+      poster_url,
+      backdrop_path,
+      first_air_date,
+      vote_average,
+      vote_count,
+      popularity,
+      added_by_user_id,
+    } = addSeriesDto;
 
     // Verificar que el usuario es miembro del grupo
     const membership = await this.groupMemberRepository.findOne({
@@ -349,42 +373,50 @@ export class GroupsService {
       throw new NotFoundException("Grupo no encontrado o no tienes acceso");
     }
 
-    // Verificar que la serie no esté ya en el grupo
-    const existingSeries = await this.groupSeriesRepository.findOne({
-      where: { group_id: groupId, series_id: seriesId, is_active: true },
+    // Buscar si la serie ya existe en la tabla series usando el tmdb_id
+    let series = await this.seriesRepository.findOne({
+      where: { tmdb_id: tmdb_id },
     });
 
-    if (existingSeries) {
+    // Si no existe, la creamos en la tabla series con los datos recibidos
+    if (!series) {
+      // Extraer poster_path de poster_url si no se proporciona poster_path
+      let finalPosterPath = poster_path;
+      if (!poster_path && poster_url) {
+        // Extraer la ruta del poster de la URL completa
+        const urlParts = poster_url.split("/");
+        finalPosterPath = "/" + urlParts[urlParts.length - 1];
+      }
+
+      series = this.seriesRepository.create({
+        tmdb_id: tmdb_id,
+        name: name,
+        overview: overview,
+        poster_path: finalPosterPath,
+        backdrop_path: backdrop_path,
+        first_air_date: first_air_date ? new Date(first_air_date) : null,
+        vote_average: vote_average || 0,
+        vote_count: vote_count || 0,
+        popularity: popularity || 0,
+        is_popular: popularity ? popularity > 50 : false, // Usar popularity para determinar si es popular
+      });
+      await this.seriesRepository.save(series);
+    }
+
+    // Verificar que la serie no esté ya en el grupo
+    const existingGroupSeries = await this.groupSeriesRepository.findOne({
+      where: { group_id: groupId, series_id: series.id, is_active: true },
+    });
+
+    if (existingGroupSeries) {
       throw new NotFoundException("La serie ya está en el grupo");
     }
 
-    // Obtener información de la serie desde TMDB (aquí deberías implementar la lógica)
-    // Por ahora, crearemos una serie básica
-    const series = await this.seriesRepository.findOne({
-      where: { tmdb_id: seriesId },
-    });
-
-    let seriesToAdd;
-    if (!series) {
-      // Si la serie no existe en la base de datos, la creamos
-      seriesToAdd = this.seriesRepository.create({
-        tmdb_id: seriesId,
-        name: `Series ${seriesId}`, // Nombre temporal
-        overview: "Descripción temporal",
-        vote_average: 0,
-        vote_count: 0,
-        is_popular: false,
-      });
-      await this.seriesRepository.save(seriesToAdd);
-    } else {
-      seriesToAdd = series;
-    }
-
-    // Agregar la serie al grupo
+    // Crear una relación en la tabla group_series
     const groupSeries = this.groupSeriesRepository.create({
       group_id: groupId,
-      series_id: seriesToAdd.id,
-      added_by_user_id: addedByUserId || userId,
+      series_id: series.id,
+      added_by_user_id: added_by_user_id || userId,
       is_active: true,
     });
 
@@ -395,15 +427,195 @@ export class GroupsService {
       group_id: groupId,
       user_id: userId,
       type: "series_added",
-      series_id: seriesToAdd.id,
-      series_name: seriesToAdd.name,
+      series_id: series.id,
+      series_name: series.name,
     });
+
+    // Obtener información del usuario que añadió la serie
+    const user = await this.usersService.findById(userId);
+
+    // Emitir evento WebSocket a todos los miembros del grupo
+    this.websocketsGateway.emitToGroup(groupId, "series-added", {
+      seriesId: series.tmdb_id,
+      seriesName: series.name,
+      addedBy: {
+        userId: userId,
+        username: user?.username || "Usuario",
+        name: user?.name || "Usuario",
+      },
+      addedAt: groupSeries.added_at,
+    });
+
+    // Emitir a cada usuario el número actualizado de series
+    const groupMembers = await this.groupMemberRepository.find({
+      where: { group_id: groupId, is_active: true },
+      relations: ["user"],
+    });
+    const seriesCount = await this.groupSeriesRepository.count({
+      where: { group_id: groupId, is_active: true },
+    });
+    for (const member of groupMembers) {
+      if (member.user) {
+        this.websocketsGateway.emitToUser(
+          member.user.id,
+          "updated-number-series",
+          {
+            groupId,
+            seriesCount,
+          }
+        );
+      }
+    }
 
     return {
       id: groupSeries.id,
-      series_id: seriesToAdd.id,
-      series_name: seriesToAdd.name,
+      series_id: series.id, // ID interno de la BD
+      tmdb_id: series.tmdb_id, // ID de TMDB
+      series_name: series.name,
       added_at: groupSeries.added_at,
+    };
+  }
+
+  /**
+   * Obtener progreso de los miembros de un grupo en una serie específica
+   */
+  async getSeriesProgress(groupId: number, seriesId: number, userId: number) {
+    // Verificar que el usuario es miembro del grupo
+    const membership = await this.groupMemberRepository.findOne({
+      where: { group_id: groupId, user_id: userId, is_active: true },
+    });
+
+    if (!membership) {
+      throw new NotFoundException("Grupo no encontrado o no tienes acceso");
+    }
+
+    // Verificar que la serie existe en el grupo
+    const groupSeries = await this.groupSeriesRepository.findOne({
+      where: { group_id: groupId, series_id: seriesId, is_active: true },
+      relations: ["series"],
+    });
+
+    if (!groupSeries) {
+      throw new NotFoundException("Serie no encontrada en el grupo");
+    }
+
+    // Obtener todos los miembros del grupo
+    const groupMembers = await this.groupMemberRepository.find({
+      where: { group_id: groupId, is_active: true },
+      relations: ["user"],
+    });
+
+    // Obtener el progreso de cada miembro
+    const membersProgress = [];
+
+    for (const member of groupMembers) {
+      if (!member.user) continue; // Skip if user is null
+
+      // Obtener episodios vistos por este usuario en esta serie
+      const watchedEpisodes = await this.userEpisodeRepository.find({
+        where: {
+          user_id: member.user.id,
+          series_id: groupSeries.series.id, // Usar el ID interno, no el tmdb_id
+          watched: true,
+        },
+        relations: ["episode"],
+        order: { watched_at: "DESC" },
+      });
+
+      // Calcular estadísticas
+      let highestSeason = 0;
+      let highestEpisode = 0;
+      const totalEpisodesWatched = watchedEpisodes.length;
+
+      // Encontrar la temporada y episodio más alto vistos
+      for (const watched of watchedEpisodes) {
+        if (watched.episode) {
+          if (watched.episode.season_number > highestSeason) {
+            highestSeason = watched.episode.season_number;
+            highestEpisode = watched.episode.episode_number;
+          } else if (
+            watched.episode.season_number === highestSeason &&
+            watched.episode.episode_number > highestEpisode
+          ) {
+            highestEpisode = watched.episode.episode_number;
+          }
+        }
+      }
+
+      membersProgress.push({
+        user_id: member.user.id,
+        username: member.user.username,
+        full_name: `${member.user.name} ${member.user.lastname}`,
+        highest_season: highestSeason,
+        highest_episode: highestEpisode,
+        total_episodes_watched: totalEpisodesWatched,
+      });
+    }
+
+    return {
+      series_id: seriesId,
+      tmdb_id: groupSeries.series.tmdb_id,
+      members_progress: membersProgress,
+    };
+  }
+
+  /**
+   * Obtener episodios vistos de una temporada específica por un usuario
+   */
+  async getSeasonEpisodesWatched(
+    groupId: number,
+    seriesId: number,
+    seasonNumber: number,
+    userId: number
+  ) {
+    // Verificar que el usuario es miembro del grupo
+    const membership = await this.groupMemberRepository.findOne({
+      where: { group_id: groupId, user_id: userId, is_active: true },
+    });
+
+    if (!membership) {
+      throw new NotFoundException("Grupo no encontrado o no tienes acceso");
+    }
+
+    // Verificar que la serie existe en el grupo
+    const groupSeries = await this.groupSeriesRepository.findOne({
+      where: { group_id: groupId, series_id: seriesId, is_active: true },
+    });
+
+    if (!groupSeries) {
+      throw new NotFoundException("Serie no encontrada en el grupo");
+    }
+
+    // Obtener episodios vistos por el usuario en esta serie y temporada
+    const watchedEpisodes = await this.userEpisodeRepository.find({
+      where: {
+        user_id: userId,
+        series_id: seriesId,
+        watched: true,
+      },
+      relations: ["episode"],
+      order: { watched_at: "ASC" },
+    });
+
+    // Filtrar episodios de la temporada específica
+    const seasonEpisodesWatched = watchedEpisodes
+      .filter((userEpisode) => {
+        return (
+          userEpisode.episode &&
+          userEpisode.episode.season_number === seasonNumber
+        );
+      })
+      .map((userEpisode) => ({
+        episode_id: userEpisode.episode.tmdb_id,
+        episode_number: userEpisode.episode.episode_number,
+        season_number: userEpisode.episode.season_number,
+        watched_at: userEpisode.watched_at,
+      }));
+
+    return {
+      series_id: seriesId,
+      season_number: seasonNumber,
+      episodes_watched: seasonEpisodesWatched,
     };
   }
 }

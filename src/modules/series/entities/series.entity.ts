@@ -1,7 +1,15 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
-import { GroupSeries } from '@/modules/groups/entities/group-series.entity';
+import { GroupSeries } from "@/modules/groups/entities/group-series.entity";
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  OneToMany,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from "typeorm";
+import { Episode } from "./episode.entity";
 
-@Entity('series')
+@Entity("series")
 export class Series {
   @PrimaryGeneratedColumn()
   id: number;
@@ -12,7 +20,7 @@ export class Series {
   @Column({ length: 255 })
   name: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: "text", nullable: true })
   overview: string;
 
   @Column({ length: 255, nullable: true })
@@ -21,7 +29,7 @@ export class Series {
   @Column({ length: 255, nullable: true })
   backdrop_path: string;
 
-  @Column({ type: 'date', nullable: true })
+  @Column({ type: "date", nullable: true })
   first_air_date: Date;
 
   @Column({ nullable: true })
@@ -30,24 +38,30 @@ export class Series {
   @Column({ nullable: true })
   number_of_episodes: number;
 
-  @Column({ type: 'simple-json', nullable: true })
-  genres: { id: number, name: string }[];
+  @Column({ type: "simple-json", nullable: true })
+  genres: { id: number; name: string }[];
 
-  @Column({ type: 'decimal', precision: 3, scale: 1, default: 0 })
+  @Column({ type: "decimal", precision: 3, scale: 1, default: 0 })
   vote_average: number;
 
   @Column({ default: 0 })
   vote_count: number;
 
+  @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
+  popularity: number;
+
   @Column({ default: false })
   is_popular: boolean;
 
-  @CreateDateColumn({ type: 'timestamp' })
+  @CreateDateColumn({ type: "timestamp" })
   created_at: Date;
 
-  @UpdateDateColumn({ type: 'timestamp' })
+  @UpdateDateColumn({ type: "timestamp" })
   updated_at: Date;
 
-  @OneToMany(() => GroupSeries, groupSeries => groupSeries.series)
+  @OneToMany(() => GroupSeries, (groupSeries) => groupSeries.series)
   groups: GroupSeries[];
-} 
+
+  @OneToMany(() => Episode, (episode) => episode.series)
+  episodes: Episode[];
+}

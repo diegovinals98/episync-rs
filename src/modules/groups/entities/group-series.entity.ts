@@ -1,8 +1,16 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { Group } from './group.entity';
-import { Series } from '../../series/entities/series.entity';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from "typeorm";
+import { Series } from "../../series/entities/series.entity";
+import { Group } from "./group.entity";
 
-@Entity('group_series')
+@Entity("group_series")
 export class GroupSeries {
   @PrimaryGeneratedColumn()
   id: number;
@@ -19,15 +27,17 @@ export class GroupSeries {
   @Column({ nullable: true })
   added_by_user_id: number;
 
-  @CreateDateColumn({ type: 'timestamp' })
+  @CreateDateColumn({ type: "timestamp" })
   added_at: Date;
 
-  @UpdateDateColumn({ type: 'timestamp' })
+  @UpdateDateColumn({ type: "timestamp" })
   updated_at: Date;
 
-  @ManyToOne(() => Group, group => group.series)
+  @ManyToOne(() => Group, (group) => group.series)
+  @JoinColumn({ name: "group_id" })
   group: Group;
 
-  @ManyToOne(() => Series, series => series.groups)
+  @ManyToOne(() => Series, (series) => series.groups)
+  @JoinColumn({ name: "series_id" })
   series: Series;
-} 
+}

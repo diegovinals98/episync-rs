@@ -1,27 +1,28 @@
-import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
-import { TerminusModule } from '@nestjs/terminus';
+import { Module } from "@nestjs/common";
+import { ConfigModule } from "@nestjs/config";
+import { TerminusModule } from "@nestjs/terminus";
+import { ThrottlerModule } from "@nestjs/throttler";
 
 // Configuration modules
-import { DatabaseModule } from '@/config/database/database.module';
-import { LoggerModule } from '@/config/logger/logger.module';
+import { DatabaseModule } from "@/config/database/database.module";
+import { LoggerModule } from "@/config/logger/logger.module";
 
 // Feature modules
-import { HealthModule } from '@/modules/health/health.module';
-import { AuthModule } from '@/modules/auth/auth.module';
-import { UsersModule } from '@/modules/users/users.module';
-import { NotificationsModule } from '@/modules/notifications/notifications.module';
-import { GroupsModule } from '@/modules/groups/groups.module';
-import { SeriesModule } from '@/modules/series/series.module';
-import { DevelopmentModule } from '@/modules/development/development.module';
+import { AuthModule } from "@/modules/auth/auth.module";
+import { DevelopmentModule } from "@/modules/development/development.module";
+import { GroupsModule } from "@/modules/groups/groups.module";
+import { HealthModule } from "@/modules/health/health.module";
+import { NotificationsModule } from "@/modules/notifications/notifications.module";
+import { SeriesModule } from "@/modules/series/series.module";
+import { UsersModule } from "@/modules/users/users.module";
+import { WebSocketsModule } from "@/modules/websockets/websockets.module";
 
 // Shared modules
-import { SharedModule } from '@/shared/shared.module';
+import { SharedModule } from "@/shared/shared.module";
 
 // Configuration validation
-import configuration from '@/config/configuration';
-import { validationSchema } from '@/config/validation';
+import configuration from "@/config/configuration";
+import { validationSchema } from "@/config/validation";
 
 @Module({
   imports: [
@@ -30,10 +31,10 @@ import { validationSchema } from '@/config/validation';
       isGlobal: true,
       load: [configuration],
       validationSchema,
-      envFilePath: ['.env.local', '.env'],
+      envFilePath: [".env.local", ".env"],
       expandVariables: true,
     }),
-    
+
     // Rate limiting
     ThrottlerModule.forRoot([
       {
@@ -41,14 +42,14 @@ import { validationSchema } from '@/config/validation';
         limit: 100, // 100 requests per minute
       },
     ]),
-    
+
     // Health checks
     TerminusModule,
-    
+
     // Configuration modules
     DatabaseModule,
     LoggerModule,
-    
+
     // Feature modules
     HealthModule,
     AuthModule,
@@ -57,11 +58,12 @@ import { validationSchema } from '@/config/validation';
     GroupsModule,
     SeriesModule,
     DevelopmentModule,
-    
+    WebSocketsModule,
+
     // Shared modules
     SharedModule,
   ],
   controllers: [],
   providers: [],
 })
-export class AppModule {} 
+export class AppModule {}
