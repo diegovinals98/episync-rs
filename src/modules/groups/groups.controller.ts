@@ -14,16 +14,23 @@ import {
   ApiResponse,
   ApiTags,
 } from "@nestjs/swagger";
+import { InjectRepository } from "@nestjs/typeorm";
 import { Request } from "express";
+import { Repository } from "typeorm";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { AddSeriesDto } from "./dto/add-series.dto";
 import { CreateGroupDto } from "./dto/create-group.dto";
+import { Comment } from "./entities/comment.entity";
 import { GroupsService } from "./groups.service";
 
 @ApiTags("Groups")
 @Controller("groups")
 export class GroupsController {
-  constructor(private readonly groupsService: GroupsService) {}
+  constructor(
+    private readonly groupsService: GroupsService,
+    @InjectRepository(Comment)
+    private readonly commentRepository: Repository<Comment>
+  ) {}
 
   @Get("user")
   @UseGuards(JwtAuthGuard)
@@ -553,6 +560,33 @@ export class GroupsController {
     return {
       success: true,
       data: episodesWatched,
+    };
+  }
+
+  @Get(":groupId/series/:seriesId/comments")
+  async getCommentsForGroupSeries(
+    @Param("groupId") groupId: number,
+    @Param("seriesId") seriesId: number
+  ) {
+    const comments = await this.commentRepository.find({
+      where: { group_id: groupId, series_id: seriesId },
+      order: { created_at: "ASC" },
+      relations: ["user"],
+    });
+    return {
+      success: true,
+      data: comments.map((c) => ({
+        id: c.id,
+        groupId: c.group_id,
+        seriesId: c.series_id,
+        message: c.message,
+        replyTo: c.reply_to,
+        userId: c.user_id,
+        username: c.user?.username || null,
+        name: c.user?.name || null,
+        lastname: c.user?.lastname || null,
+        timestamp: c.created_at,
+      })),
     };
   }
 }

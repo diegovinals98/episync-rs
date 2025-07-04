@@ -1,5 +1,6 @@
 import { Logger, UseGuards } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
+import { InjectRepository } from "@nestjs/typeorm";
 import {
   ConnectedSocket,
   MessageBody,
@@ -10,6 +11,9 @@ import {
   WebSocketServer,
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
+import { Repository } from "typeorm";
+import { Comment } from "../groups/entities/comment.entity";
+import { GroupActivity } from "../groups/entities/group-activity.entity";
 import { GroupsService } from "../groups/groups.service";
 import { EpisodesService } from "../series/episodes.service";
 import { WebSocketAuthGuard } from "./websocket-auth.guard";
@@ -44,7 +48,11 @@ export class WebSocketsGateway
   constructor(
     private episodesService: EpisodesService,
     private jwtService: JwtService,
-    private groupsService: GroupsService
+    private groupsService: GroupsService,
+    @InjectRepository(Comment)
+    private commentRepository: Repository<Comment>,
+    @InjectRepository(GroupActivity)
+    private groupActivityRepository: Repository<GroupActivity>
   ) {}
 
   /**
@@ -670,6 +678,48 @@ export class WebSocketsGateway
   }
 
   /**
+   * Unirse a un room de comentarios de una serie en un grupo
+   * Evento: 'join_comments_room'
+   * Payload: { groupId: number | string, seriesId: number | string }
+   */
+  @SubscribeMessage("join_comments_room")
+  async handleJoinCommentsRoom(
+    @MessageBody()
+    data: { groupId: number | string; seriesId: number | string },
+    @ConnectedSocket() client: Socket
+  ) {
+    const room = `comentarios_${data.groupId}_${data.seriesId}`;
+    await client.join(room);
+    this.logger.log(`Socket ${client.id} unido al room de comentarios ${room}`);
+    client.emit("joined-comments-room", {
+      roomId: room,
+      message: "Te has unido al room de comentarios",
+    });
+  }
+
+  /**
+   * Salir de un room de comentarios de una serie en un grupo
+   * Evento: 'leave_comments_room'
+   * Payload: { groupId: number | string, seriesId: number | string }
+   */
+  @SubscribeMessage("leave_comments_room")
+  async handleLeaveCommentsRoom(
+    @MessageBody()
+    data: { groupId: number | string; seriesId: number | string },
+    @ConnectedSocket() client: Socket
+  ) {
+    const room = `comentarios_${data.groupId}_${data.seriesId}`;
+    await client.leave(room);
+    this.logger.log(
+      `Socket ${client.id} salió del room de comentarios ${room}`
+    );
+    client.emit("left-comments-room", {
+      roomId: room,
+      message: "Has salido del room de comentarios",
+    });
+  }
+
+  /**
    * Emitir a cada usuario del grupo el número actualizado de series
    */
   async emitUpdatedNumberSeries(groupId: number) {
@@ -692,6 +742,85 @@ export class WebSocketsGateway
           seriesCount,
         });
       }
+    }
+  }
+
+  /**
+   * Añadir un comentario y emitirlo al room de comentarios
+   * Evento: 'add_comment'
+   * Payload: { groupId, seriesId, message, token, replyTo }
+   */
+  @SubscribeMessage("add_comment")
+  async handleAddComment(
+    @MessageBody()
+    data: {
+      groupId: number | string;
+      seriesId: number | string;
+      message: string;
+      token: string;
+      replyTo?: number | null;
+    },
+    @ConnectedSocket() client: Socket
+  ) {
+    try {
+      // Decodificar el token para obtener el id de usuario
+      let userId: number | null = null;
+      let username = "";
+      let name = "";
+      let lastname = "";
+      if (data.token) {
+        const token = data.token.startsWith("Bearer ")
+          ? data.token.slice(7)
+          : data.token;
+        const payload: any = this.jwtService.decode(token);
+        userId = payload?.id;
+        username = payload?.username || "";
+        name = payload?.name || "";
+        lastname = payload?.lastname || "";
+      }
+      const room = `comentarios_${data.groupId}_${data.seriesId}`;
+      // Guardar el comentario en la base de datos
+      const comment = this.commentRepository.create({
+        group_id: Number(data.groupId),
+        series_id: Number(data.seriesId),
+        user_id: userId,
+        message: data.message,
+        reply_to: data.replyTo || null,
+      });
+      const saved = await this.commentRepository.save(comment);
+      // Guardar actividad en el grupo
+      let seriesName = null;
+      try {
+        const seriesRepo = this.episodesService.seriesRepository;
+        const series = await seriesRepo.findOne({
+          where: { id: Number(data.seriesId) },
+        });
+        seriesName = series ? series.name : null;
+      } catch {}
+      await this.groupActivityRepository.save({
+        group_id: Number(data.groupId),
+        user_id: userId,
+        type: "comment_added",
+        series_id: Number(data.seriesId),
+        series_name: seriesName,
+        comment: data.message,
+        created_at: saved.created_at,
+      });
+      // Emitir el comentario al room
+      this.server.to(room).emit("new_comment", {
+        id: saved.id,
+        groupId: data.groupId,
+        seriesId: data.seriesId,
+        message: data.message,
+        replyTo: data.replyTo || null,
+        userId,
+        username,
+        name,
+        lastname,
+        timestamp: saved.created_at,
+      });
+    } catch (error) {
+      client.emit("error", { message: "Error al procesar el comentario" });
     }
   }
 }

@@ -65,6 +65,30 @@ export class AddSeriesDto {
   @IsDateString({}, { message: "La fecha debe tener formato válido" })
   first_air_date?: string;
 
+  @ApiPropertyOptional({
+    description: "Número de temporadas",
+    example: 2,
+  })
+  @IsOptional()
+  @IsNumber({}, { message: "El número de temporadas debe ser un número" })
+  number_of_seasons?: number;
+
+  @ApiPropertyOptional({
+    description: "Número de episodios",
+    example: 9,
+  })
+  @IsOptional()
+  @IsNumber({}, { message: "El número de episodios debe ser un número" })
+  number_of_episodes?: number;
+
+  @ApiPropertyOptional({
+    description: "Géneros (JSON string)",
+    example: '[{"id":10759,"name":"Action & Adventure"}]',
+  })
+  @IsOptional()
+  @IsString({ message: "Los géneros deben ser un string" })
+  genres?: string;
+
   @ApiProperty({
     description: "Puntuación media de la serie",
     example: 8.5,
@@ -88,6 +112,30 @@ export class AddSeriesDto {
   @IsOptional()
   @IsNumber({}, { message: "La popularidad debe ser un número" })
   popularity?: number;
+
+  @ApiPropertyOptional({
+    description: "¿Es popular?",
+    example: 0,
+  })
+  @IsOptional()
+  @IsNumber({}, { message: "El campo is_popular debe ser un número" })
+  is_popular?: number;
+
+  @ApiPropertyOptional({
+    description: "Fecha de creación",
+    example: "2022-06-30T00:00:00.000Z",
+  })
+  @IsOptional()
+  @IsString()
+  created_at?: string;
+
+  @ApiPropertyOptional({
+    description: "Fecha de actualización",
+    example: "2022-06-30T00:00:00.000Z",
+  })
+  @IsOptional()
+  @IsString()
+  updated_at?: string;
 
   @ApiPropertyOptional({
     description: "ID del usuario que agrega la serie",

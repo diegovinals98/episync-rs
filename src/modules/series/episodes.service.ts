@@ -216,22 +216,39 @@ export class EpisodesService {
   async markEpisodeWatchedWithData(
     userId: number,
     episodeId: number, // TMDB episode ID
-    seriesId: number, // Internal series ID
+    seriesId: number, // Puede ser tmdb_id
     episodeNumber: number,
     seasonNumber: number,
     groupId?: number
   ) {
     try {
+      // Buscar el id interno de la serie si se recibe un tmdb_id
+      let internalSeriesId = seriesId;
+      let series = await this.seriesRepository.findOne({
+        where: { id: seriesId },
+      });
+      if (!series) {
+        // Si no existe por id, intenta buscar por tmdb_id
+        series = await this.seriesRepository.findOne({
+          where: { tmdb_id: seriesId },
+        });
+        if (series) {
+          internalSeriesId = series.id;
+        }
+      }
+      // Si no existe la serie, lanzar error
+      if (!series) {
+        throw new Error("Serie no encontrada");
+      }
       // Verificar si el episodio existe
       let episode = await this.episodeRepository.findOne({
         where: { tmdb_id: episodeId },
       });
-
       if (!episode) {
         // Si el episodio no existe, lo creamos con los datos proporcionados
         const newEpisode = this.episodeRepository.create({
           tmdb_id: episodeId,
-          series_id: seriesId,
+          series_id: internalSeriesId,
           season_number: seasonNumber,
           episode_number: episodeNumber,
           name: `S${seasonNumber}E${episodeNumber}`,
@@ -244,7 +261,6 @@ export class EpisodesService {
         });
         episode = await this.episodeRepository.save(newEpisode);
       }
-
       // Verificar si ya está marcado como visto
       const existingUserEpisode = await this.userEpisodeRepository.findOne({
         where: {
@@ -252,64 +268,38 @@ export class EpisodesService {
           episode_id: episode.id, // Usar el ID del episodio (no el tmdb_id)
         },
       });
-
       if (existingUserEpisode) {
         // Si ya está visto, lo marcamos como no visto (toggle)
         await this.userEpisodeRepository.remove(existingUserEpisode);
-
-        // No registramos actividad cuando se marca como no visto
-        // (la tabla group_activity no tiene 'episode_unwatched' en el ENUM)
-
-        // Ya no emitimos desde aquí, lo hacemos desde el gateway
         return { action: "unwatched", episode: existingUserEpisode };
       }
-
       // Si no está visto, lo marcamos como visto
       const userEpisode = this.userEpisodeRepository.create({
         user_id: userId,
         episode_id: episode.id, // Usar el ID del episodio (no el tmdb_id)
-        series_id: seriesId,
+        series_id: internalSeriesId,
         watched: true,
         watched_at: new Date(),
       });
-
       await this.userEpisodeRepository.save(userEpisode);
-
       // Guardar actividad en el grupo si se proporciona groupId
       if (groupId) {
-        console.log(
-          `Guardando actividad para grupo ${groupId}, usuario ${userId}, episodio ${episode.id}`
-        );
         try {
-          // Obtener el nombre de la serie
-          const series = await this.seriesRepository.findOne({
-            where: { id: seriesId },
-          });
-
-          const seriesName = series ? series.name : `Serie ${seriesId}`;
-
+          const seriesName = series ? series.name : `Serie ${internalSeriesId}`;
           await this.groupActivityRepository.save({
             group_id: groupId,
             user_id: userId,
             type: "episode_watched",
-            series_id: seriesId,
+            series_id: internalSeriesId,
             series_name: seriesName,
             episode_id: episode.id,
             episode_name: `S${seasonNumber}E${episodeNumber}`,
             created_at: new Date(),
           });
-          console.log(
-            `✅ Actividad guardada exitosamente con serie: ${seriesName}`
-          );
-
-          // Ya no emitimos desde aquí, lo hacemos desde el gateway
         } catch (error) {
-          console.error(`❌ Error guardando actividad:`, error);
+          // log error
         }
-      } else {
-        console.log(`⚠️ No se proporcionó groupId, no se guarda actividad`);
       }
-
       return { action: "watched", episode: userEpisode };
     } catch (error) {
       throw new Error(`Error al marcar episodio como visto: ${error.message}`);

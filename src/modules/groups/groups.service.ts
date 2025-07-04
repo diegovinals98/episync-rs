@@ -93,18 +93,24 @@ export class GroupsService {
       // Formatear la actividad reciente (con validación para usuarios null)
       const formattedActivity = recentActivity
         .filter((activity) => activity.user !== null) // Filtrar actividades sin usuario
-        .map((activity) => ({
-          id: activity.id,
-          type: activity.type,
-          user_id: activity.user_id,
-          username: activity.user.username,
-          name: activity.user.name,
-          series_id: activity.series_id,
-          series_name: activity.series_name,
-          episode_id: activity.episode_id,
-          episode_name: activity.episode_name,
-          created_at: activity.created_at,
-        }));
+        .map((activity) => {
+          const base = {
+            id: activity.id,
+            type: activity.type,
+            user_id: activity.user_id,
+            username: activity.user.username,
+            name: activity.user.name,
+            series_id: activity.series_id,
+            series_name: activity.series_name,
+            episode_id: activity.episode_id,
+            episode_name: activity.episode_name,
+            created_at: activity.created_at,
+          };
+          if (activity.type === "comment_added") {
+            return { ...base, comment: activity.comment };
+          }
+          return base;
+        });
 
       // Obtener la última actividad para determinar last_activity
       const lastActivity =
@@ -395,10 +401,32 @@ export class GroupsService {
         poster_path: finalPosterPath,
         backdrop_path: backdrop_path,
         first_air_date: first_air_date ? new Date(first_air_date) : null,
+        number_of_seasons:
+          typeof addSeriesDto.number_of_seasons !== "undefined"
+            ? addSeriesDto.number_of_seasons
+            : null,
+        number_of_episodes:
+          typeof addSeriesDto.number_of_episodes !== "undefined"
+            ? addSeriesDto.number_of_episodes
+            : null,
+        genres: addSeriesDto.genres
+          ? typeof addSeriesDto.genres === "string"
+            ? JSON.parse(addSeriesDto.genres)
+            : addSeriesDto.genres
+          : null,
         vote_average: vote_average || 0,
         vote_count: vote_count || 0,
+        is_popular:
+          typeof addSeriesDto.is_popular !== "undefined"
+            ? Boolean(addSeriesDto.is_popular)
+            : false,
+        created_at: addSeriesDto.created_at
+          ? new Date(addSeriesDto.created_at)
+          : undefined,
+        updated_at: addSeriesDto.updated_at
+          ? new Date(addSeriesDto.updated_at)
+          : undefined,
         popularity: popularity || 0,
-        is_popular: popularity ? popularity > 50 : false, // Usar popularity para determinar si es popular
       });
       await this.seriesRepository.save(series);
     }
@@ -473,6 +501,7 @@ export class GroupsService {
       tmdb_id: series.tmdb_id, // ID de TMDB
       series_name: series.name,
       added_at: groupSeries.added_at,
+      number_of_episodes: series.number_of_episodes || 0,
     };
   }
 

@@ -167,19 +167,15 @@ export class UsersService {
     const hoursWatched = Math.round((episodesWatched[0]?.count || 0) * 0.75);
     // Obtener info de series y progreso
     const series = await this.usersRepository.manager.query(
-      `SELECT s.id, s.name, s.poster_path, COUNT(ue.id) as watched_episodes
+      `SELECT s.id, s.name, s.poster_path, s.number_of_episodes, COUNT(ue.id) as watched_episodes
        FROM series s
        JOIN user_episodes ue ON ue.series_id = s.id AND ue.user_id = ? AND ue.watched = 1
-       GROUP BY s.id, s.name, s.poster_path`,
+       GROUP BY s.id, s.name, s.poster_path, s.number_of_episodes`,
       [userId]
     );
-    // Obtener total de episodios por serie y último episodio visto
+    // Usar number_of_episodes directamente
     for (const s of series) {
-      const totalEpisodes = await this.usersRepository.manager.query(
-        `SELECT COUNT(*) as count FROM episodes WHERE series_id = ?`,
-        [s.id]
-      );
-      s.total_episodes = totalEpisodes[0]?.count || 0;
+      s.total_episodes = s.number_of_episodes || 0;
       s.progress = s.total_episodes
         ? Math.round((s.watched_episodes / s.total_episodes) * 100)
         : 0;
@@ -195,6 +191,7 @@ export class UsersService {
         ? `https://image.tmdb.org/t/p/w300${s.poster_path}`
         : null;
       delete s.poster_path;
+      delete s.number_of_episodes;
     }
     return {
       stats: {
