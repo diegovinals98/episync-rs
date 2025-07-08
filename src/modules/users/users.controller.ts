@@ -1,4 +1,12 @@
-import { Controller, Get, Query, Req, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -6,15 +14,22 @@ import {
   ApiResponse,
   ApiTags,
 } from "@nestjs/swagger";
+import { InjectRepository } from "@nestjs/typeorm";
 import { Request } from "express";
+import { Repository } from "typeorm";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { SearchUsersDto } from "./dto/search-users.dto";
+import { UserPushToken } from "./entities/user-push-token.entity";
 import { UsersService } from "./users.service";
 
 @ApiTags("Users")
 @Controller("users")
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    @InjectRepository(UserPushToken)
+    private readonly pushTokenRepo: Repository<UserPushToken>
+  ) {}
 
   @Get("search")
   @UseGuards(JwtAuthGuard)
@@ -141,5 +156,53 @@ export class UsersController {
       success: true,
       data: dashboard,
     };
+  }
+
+  @Post("push-token")
+  @UseGuards(JwtAuthGuard)
+  async savePushToken(
+    @Body("expo_push_token") expoPushToken: string,
+    @Req() req
+  ) {
+    const userId = req.user["id"];
+    if (!expoPushToken) {
+      return { success: false, error: "expo_push_token es requerido" };
+    }
+    try {
+      let token = await this.pushTokenRepo.findOne({
+        where: { user_id: userId, expo_push_token: expoPushToken },
+      });
+      if (token) {
+        // Ya existe, no hacer nada
+        return {
+          success: true,
+          data: {
+            expo_push_token: token.expo_push_token,
+            user_id: String(token.user_id),
+            updated_at: token.updated_at.toISOString(),
+          },
+        };
+      }
+      // No existe, lo creamos
+      token = this.pushTokenRepo.create({
+        user_id: userId,
+        expo_push_token: expoPushToken,
+      });
+      token.updated_at = new Date();
+      await this.pushTokenRepo.save(token);
+      return {
+        success: true,
+        data: {
+          expo_push_token: token.expo_push_token,
+          user_id: String(token.user_id),
+          updated_at: token.updated_at.toISOString(),
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: "No se pudo guardar el token: " + error.message,
+      };
+    }
   }
 }

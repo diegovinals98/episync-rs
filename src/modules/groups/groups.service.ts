@@ -6,6 +6,8 @@ import {
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
+import { NotificationHelperService } from "../notifications/notification-helper.service";
+import { PushNotificationService } from "../notifications/push-notification.service";
 import { Series } from "../series/entities/series.entity";
 import { UserEpisode } from "../series/entities/user-episode.entity";
 import { UsersService } from "../users/users.service";
@@ -34,7 +36,9 @@ export class GroupsService {
     @Inject(forwardRef(() => WebSocketsGateway))
     private websocketsGateway: WebSocketsGateway,
     @InjectRepository(UserEpisode)
-    private userEpisodeRepository: Repository<UserEpisode>
+    private userEpisodeRepository: Repository<UserEpisode>,
+    private notificationHelperService: NotificationHelperService,
+    private pushNotificationService: PushNotificationService
   ) {}
 
   async getUserGroups(userId: number) {
@@ -177,6 +181,45 @@ export class GroupsService {
 
     // Obtener información completa del grupo creado
     const groupWithDetails = await this.getGroupDetails(savedGroup.id);
+
+    // Enviar notificación push a todos los miembros del grupo (excepto al admin)
+    try {
+      console.log(
+        `📱 Preparando notificación push para grupo creado: ${savedGroup.name}`
+      );
+
+      // Obtener tokens de todos los miembros excepto el admin
+      const memberTokens =
+        await this.notificationHelperService.getGroupMemberTokens(
+          savedGroup.id,
+          adminId
+        );
+
+      console.log(
+        `📱 Encontrados ${memberTokens.length} tokens para notificar en grupo ${savedGroup.name}`
+      );
+
+      if (memberTokens.length > 0) {
+        // Obtener información del admin
+        const admin = await this.usersService.findById(adminId);
+
+        await this.pushNotificationService.notifyGroupCreated(
+          savedGroup.name,
+          admin?.username || "Usuario",
+          memberTokens
+        );
+
+        console.log(
+          `📱 Notificación push enviada a ${memberTokens.length} usuarios por grupo creado: ${savedGroup.name}`
+        );
+      } else {
+        console.log(
+          `⚠️ No se encontraron tokens de push para notificar en grupo ${savedGroup.name}`
+        );
+      }
+    } catch (notificationError) {
+      console.error("Error enviando notificación push:", notificationError);
+    }
 
     return {
       id: savedGroup.id,

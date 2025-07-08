@@ -15,6 +15,8 @@ import { Repository } from "typeorm";
 import { Comment } from "../groups/entities/comment.entity";
 import { GroupActivity } from "../groups/entities/group-activity.entity";
 import { GroupsService } from "../groups/groups.service";
+import { NotificationHelperService } from "../notifications/notification-helper.service";
+import { PushNotificationService } from "../notifications/push-notification.service";
 import { EpisodesService } from "../series/episodes.service";
 import { WebSocketAuthGuard } from "./websocket-auth.guard";
 
@@ -52,7 +54,9 @@ export class WebSocketsGateway
     @InjectRepository(Comment)
     private commentRepository: Repository<Comment>,
     @InjectRepository(GroupActivity)
-    private groupActivityRepository: Repository<GroupActivity>
+    private groupActivityRepository: Repository<GroupActivity>,
+    private pushNotificationService: PushNotificationService,
+    private notificationHelperService: NotificationHelperService
   ) {}
 
   /**
@@ -397,6 +401,44 @@ export class WebSocketsGateway
         message: `Episodio marcado como ${actionText}`,
       });
 
+      // Enviar notificación push a todos los miembros del grupo (excepto al que marcó el episodio)
+      if (isWatched) {
+        try {
+          const groupTokens =
+            await this.notificationHelperService.getGroupMemberTokens(
+              groupId,
+              user.id
+            );
+
+          if (groupTokens.length > 0) {
+            // Obtener información del grupo y la serie
+            const group = await this.groupsService.getGroupById(
+              groupId,
+              user.id
+            );
+            const series = await this.episodesService.seriesRepository.findOne({
+              where: { id: seriesId },
+            });
+
+            await this.pushNotificationService.notifyEpisodeWatched(
+              group.name,
+              series ? series.name : `Serie ${seriesId}`,
+              episodeNumber,
+              user.username,
+              groupTokens
+            );
+
+            this.logger.log(
+              `📱 Notificación push enviada a ${groupTokens.length} usuarios del grupo ${groupId}`
+            );
+          }
+        } catch (notificationError) {
+          this.logger.error(
+            `Error enviando notificación push: ${notificationError.message}`
+          );
+        }
+      }
+
       this.logger.log(
         `✅ Episodio ${episodeId} marcado como ${actionText} en grupo ${groupId}`
       );
@@ -651,6 +693,50 @@ export class WebSocketsGateway
       });
 
       this.emitUpdatedNumberSeries(group_id);
+
+      // Enviar notificación push a todos los miembros del grupo (excepto al que añadió)
+      try {
+        this.logger.log(
+          `📱 Preparando notificación push para serie añadida al grupo ${group_id}`
+        );
+
+        const groupTokens =
+          await this.notificationHelperService.getGroupMemberTokens(
+            group_id,
+            user.id
+          );
+
+        this.logger.log(
+          `📱 Encontrados ${groupTokens.length} tokens para notificar en grupo ${group_id}`
+        );
+
+        if (groupTokens.length > 0) {
+          const group = await this.groupsService.getGroupById(
+            group_id,
+            user.id
+          );
+
+          await this.pushNotificationService.notifySeriesAdded(
+            group.name,
+            data.addSeriesDto.name,
+            groupTokens,
+            user.username
+          );
+
+          this.logger.log(
+            `📱 Notificación push enviada a ${groupTokens.length} usuarios del grupo ${group_id} por serie añadida: ${data.addSeriesDto.name}`
+          );
+        } else {
+          this.logger.log(
+            `⚠️ No se encontraron tokens de push para notificar en grupo ${group_id}`
+          );
+        }
+      } catch (notificationError) {
+        this.logger.error(
+          `Error enviando notificación push: ${notificationError.message}`
+        );
+        this.logger.error(`Stack trace: ${notificationError.stack}`);
+      }
     } catch (error) {
       this.server.to(`${data.roomId}`).emit("error", {
         message: error.message,
@@ -819,6 +905,54 @@ export class WebSocketsGateway
         lastname,
         timestamp: saved.created_at,
       });
+
+      // Enviar notificación push a todos los miembros del grupo (excepto al que comentó)
+      try {
+        this.logger.log(
+          `📱 Preparando notificación push para comentario en grupo ${data.groupId}`
+        );
+
+        const groupTokens =
+          await this.notificationHelperService.getGroupMemberTokens(
+            Number(data.groupId),
+            userId
+          );
+
+        this.logger.log(
+          `📱 Encontrados ${groupTokens.length} tokens para notificar en grupo ${data.groupId}`
+        );
+
+        if (groupTokens.length > 0) {
+          // Obtener información del grupo y la serie
+          const group = await this.groupsService.getGroupById(
+            Number(data.groupId),
+            userId
+          );
+          const series = await this.episodesService.seriesRepository.findOne({
+            where: { id: Number(data.seriesId) },
+          });
+
+          await this.pushNotificationService.notifyCommentAdded(
+            group.name,
+            series ? series.name : `Serie ${data.seriesId}`,
+            username,
+            groupTokens
+          );
+
+          this.logger.log(
+            `📱 Notificación push enviada a ${groupTokens.length} usuarios del grupo ${data.groupId} por comentario de: ${username}`
+          );
+        } else {
+          this.logger.log(
+            `⚠️ No se encontraron tokens de push para notificar en grupo ${data.groupId}`
+          );
+        }
+      } catch (notificationError) {
+        this.logger.error(
+          `Error enviando notificación push: ${notificationError.message}`
+        );
+        this.logger.error(`Stack trace: ${notificationError.stack}`);
+      }
     } catch (error) {
       client.emit("error", { message: "Error al procesar el comentario" });
     }

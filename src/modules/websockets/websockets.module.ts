@@ -4,6 +4,7 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { Comment } from "../groups/entities/comment.entity";
 import { GroupActivity } from "../groups/entities/group-activity.entity";
 import { GroupsModule } from "../groups/groups.module";
+import { NotificationsModule } from "../notifications/notifications.module";
 import { SeriesModule } from "../series/series.module";
 import { WebSocketAuthGuard } from "./websocket-auth.guard";
 import { WsExceptionFilter } from "./websocket-exception.filter";
@@ -18,6 +19,7 @@ import { WebSocketsGateway } from "./websockets.gateway";
     }),
     forwardRef(() => SeriesModule),
     forwardRef(() => GroupsModule),
+    NotificationsModule,
   ],
   providers: [WebSocketsGateway, WebSocketAuthGuard, WsExceptionFilter],
   exports: [WebSocketsGateway],

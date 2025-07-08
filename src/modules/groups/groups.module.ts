@@ -1,5 +1,6 @@
 import { forwardRef, Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
+import { NotificationsModule } from "../notifications/notifications.module";
 import { Series } from "../series/entities/series.entity";
 import { UserEpisode } from "../series/entities/user-episode.entity";
 import { SeriesModule } from "../series/series.module";
@@ -26,6 +27,7 @@ import { GroupsService } from "./groups.service";
     ]),
     UsersModule,
     SeriesModule,
+    NotificationsModule,
     forwardRef(() => WebSocketsModule),
   ],
   controllers: [GroupsController],

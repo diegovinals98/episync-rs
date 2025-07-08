@@ -22,19 +22,13 @@ async function bootstrap() {
     })
   );
 
-  // CORS configuration - Habilitar todo completamente
+  // CORS configuration - Permitir todo
   app.enableCors({
-    origin: true, // Permitir todos los orígenes
+    origin: true, // Permitir cualquier origen
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "X-Requested-With",
-      "Accept",
-      "Origin",
-    ],
-    exposedHeaders: ["Content-Range", "X-Content-Range"],
+    methods: "*", // Permitir todos los métodos
+    allowedHeaders: "*", // Permitir todos los headers
+    exposedHeaders: "*", // Exponer todos los headers
     maxAge: 86400, // 24 horas
   });
 
