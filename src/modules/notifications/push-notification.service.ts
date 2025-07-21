@@ -87,6 +87,32 @@ export class PushNotificationService {
     );
   }
 
+  // Notificación cuando se elimina serie
+  async notifySeriesRemoved(
+    groupName: string,
+    seriesName: string,
+    userTokens: string[],
+    removedByUser: string = null
+  ) {
+    const title = "Serie eliminada";
+    const body = `${seriesName} se eliminó del grupo ${groupName}`;
+    const data = {
+      type: "series_removed",
+      groupName,
+      seriesName,
+      removedByUser,
+      timestamp: new Date().toISOString(),
+    };
+
+    return this.sendPushNotificationToMultiple(
+      userTokens,
+      title,
+      body,
+      "Serie eliminada del grupo",
+      data
+    );
+  }
+
   // Notificación cuando se añade comentario
   async notifyCommentAdded(
     groupName: string,
@@ -187,6 +213,32 @@ export class PushNotificationService {
       title,
       body,
       "Invitación a grupo",
+      data
+    );
+  }
+
+  // Notificación cuando se añade un miembro al grupo
+  async notifyMemberAdded(
+    groupName: string,
+    newMemberName: string,
+    addedByUsername: string,
+    userTokens: string[]
+  ) {
+    const title = "Nuevo miembro en el grupo";
+    const body = `${addedByUsername} añadió a ${newMemberName} al grupo ${groupName}`;
+    const data = {
+      type: "member_added",
+      groupName,
+      newMemberName,
+      addedByUsername,
+      timestamp: new Date().toISOString(),
+    };
+
+    return this.sendPushNotificationToMultiple(
+      userTokens,
+      title,
+      body,
+      "Nuevo miembro",
       data
     );
   }

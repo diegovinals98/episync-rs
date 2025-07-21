@@ -203,4 +203,22 @@ export class UsersService {
       series,
     };
   }
+
+  async updateProfileImage(userId: number, imageUrl: string): Promise<User> {
+    const user = await this.findById(userId);
+
+    // Si ya tiene una imagen de perfil, eliminarla de S3
+    if (user.avatar_url) {
+      // Aquí podrías llamar al servicio S3 para eliminar la imagen anterior
+      // Por ahora solo actualizamos la URL
+    }
+
+    // Actualizar la URL de la imagen de perfil
+    await this.usersRepository.update(userId, {
+      avatar_url: imageUrl,
+    });
+
+    // Retornar el usuario actualizado
+    return this.findById(userId);
+  }
 }

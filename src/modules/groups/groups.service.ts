@@ -10,6 +10,7 @@ import { NotificationHelperService } from "../notifications/notification-helper.
 import { PushNotificationService } from "../notifications/push-notification.service";
 import { Series } from "../series/entities/series.entity";
 import { UserEpisode } from "../series/entities/user-episode.entity";
+import { TmdbService } from "../series/tmdb.service";
 import { UsersService } from "../users/users.service";
 import { WebSocketsGateway } from "../websockets/websockets.gateway";
 import { AddSeriesDto } from "./dto/add-series.dto";
@@ -38,7 +39,8 @@ export class GroupsService {
     @InjectRepository(UserEpisode)
     private userEpisodeRepository: Repository<UserEpisode>,
     private notificationHelperService: NotificationHelperService,
-    private pushNotificationService: PushNotificationService
+    private pushNotificationService: PushNotificationService,
+    private tmdbService: TmdbService
   ) {}
 
   async getUserGroups(userId: number) {
@@ -53,6 +55,25 @@ export class GroupsService {
     // Para cada grupo, obtener información detallada
     for (const membership of groupMembers) {
       const group = membership.group;
+
+      // Debug: Consulta SQL raw para verificar los datos
+      const rawGroup = await this.groupRepository.query(
+        "SELECT id, name, description, image_url, created_at FROM groups WHERE id = ?",
+        [group.id]
+      );
+
+      console.log(`Raw group data for ID ${group.id}:`, rawGroup[0]);
+
+      // Hacer una consulta directa al grupo para asegurar que tenemos todos los datos
+      const fullGroup = await this.groupRepository.findOne({
+        where: { id: group.id },
+      });
+
+      console.log(`TypeORM group data for ID ${group.id}:`, {
+        id: fullGroup.id,
+        name: fullGroup.name,
+        image_url: fullGroup.image_url,
+      });
 
       // Contar miembros activos
       const memberCount = await this.groupMemberRepository.count({
@@ -123,18 +144,21 @@ export class GroupsService {
           : group.created_at;
 
       // Añadir el grupo formateado al resultado
-      groups.push({
-        id: group.id,
-        name: group.name,
-        description: group.description,
-        created_at: group.created_at,
+      const groupData = {
+        id: fullGroup.id,
+        name: fullGroup.name,
+        description: fullGroup.description,
+        image_url: fullGroup.image_url,
+        created_at: fullGroup.created_at,
         member_count: memberCount,
         is_admin: isAdmin,
         series_count: seriesCount,
         last_activity: lastActivity,
         members: formattedMembers,
         recent_activity: formattedActivity,
-      });
+      };
+
+      groups.push(groupData);
     }
 
     // Ordenar grupos por actividad más reciente
@@ -632,6 +656,120 @@ export class GroupsService {
   }
 
   /**
+   * Añadir un miembro a un grupo
+   */
+  async addMemberToGroup(
+    groupId: number,
+    userId: number,
+    addedByUserId: number
+  ) {
+    // Verificar que el usuario que añade es admin del grupo
+    const adminMembership = await this.groupMemberRepository.findOne({
+      where: { group_id: groupId, user_id: addedByUserId, is_active: true },
+    });
+
+    if (!adminMembership || adminMembership.role !== "admin") {
+      throw new NotFoundException(
+        "Solo los administradores pueden añadir miembros"
+      );
+    }
+
+    // Verificar que el usuario no esté ya en el grupo
+    const existingMembership = await this.groupMemberRepository.findOne({
+      where: { group_id: groupId, user_id: userId, is_active: true },
+    });
+
+    if (existingMembership) {
+      throw new NotFoundException("El usuario ya es miembro del grupo");
+    }
+
+    // Verificar que el usuario existe
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new NotFoundException("Usuario no encontrado");
+    }
+
+    // Verificar que el grupo existe
+    const group = await this.groupRepository.findOne({
+      where: { id: groupId },
+    });
+
+    if (!group) {
+      throw new NotFoundException("Grupo no encontrado");
+    }
+
+    // Añadir el usuario al grupo
+    const newMembership = this.groupMemberRepository.create({
+      user_id: userId,
+      group_id: groupId,
+      role: "member",
+      is_active: true,
+    });
+
+    await this.groupMemberRepository.save(newMembership);
+
+    // Registrar actividad
+    await this.groupActivityRepository.save({
+      group_id: groupId,
+      user_id: userId, // <-- El usuario que fue añadido
+      type: "member_added",
+      series_id: null,
+      series_name: null,
+    });
+
+    // Obtener información del usuario que añadió
+    const addedByUser = await this.usersService.findById(addedByUserId);
+
+    // Obtener estadísticas del usuario
+    const userStats = await this.getUserStats(userId);
+
+    return {
+      success: true,
+      message: "Usuario añadido exitosamente al grupo",
+      data: {
+        user_id: user.id,
+        username: user.username,
+        name: user.name,
+        lastname: user.lastname,
+        full_name: `${user.name} ${user.lastname}`,
+        avatar_url: user.avatar_url,
+        email: user.email,
+        is_admin: false,
+        joined_at: newMembership.joined_at,
+        series_count: userStats.seriesCount,
+        episodes_watched: userStats.episodesWatched,
+      },
+      group_id: groupId,
+      added_by: addedByUser?.username || "Usuario",
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Obtener estadísticas de un usuario
+   */
+  private async getUserStats(userId: number) {
+    // Contar series que está viendo
+    const seriesCount = await this.userEpisodeRepository
+      .createQueryBuilder("ue")
+      .select("ue.series_id")
+      .where("ue.user_id = :userId", { userId })
+      .andWhere("ue.watched = :watched", { watched: true })
+      .distinct()
+      .getCount();
+
+    // Contar episodios vistos
+    const episodesWatched = await this.userEpisodeRepository.count({
+      where: { user_id: userId, watched: true },
+    });
+
+    return {
+      seriesCount,
+      episodesWatched,
+    };
+  }
+
+  /**
    * Obtener episodios vistos de una temporada específica por un usuario
    */
   async getSeasonEpisodesWatched(
@@ -689,5 +827,276 @@ export class GroupsService {
       season_number: seasonNumber,
       episodes_watched: seasonEpisodesWatched,
     };
+  }
+
+  /**
+   * Eliminar una serie de un grupo
+   */
+  async removeSeriesFromGroup(
+    groupId: number,
+    seriesId: number,
+    userId: number
+  ) {
+    // Verificar que el usuario es miembro del grupo
+    const membership = await this.groupMemberRepository.findOne({
+      where: { group_id: groupId, user_id: userId, is_active: true },
+    });
+
+    if (!membership) {
+      throw new NotFoundException("Grupo no encontrado o no tienes acceso");
+    }
+
+    // Verificar que la serie existe en el grupo
+    const groupSeries = await this.groupSeriesRepository.findOne({
+      where: { group_id: groupId, series_id: seriesId, is_active: true },
+      relations: ["series"],
+    });
+
+    if (!groupSeries) {
+      throw new NotFoundException("Serie no encontrada en el grupo");
+    }
+
+    // Obtener información de la serie antes de eliminarla
+    const series = groupSeries.series;
+
+    // Marcar la serie como inactiva en el grupo (soft delete)
+    groupSeries.is_active = false;
+    await this.groupSeriesRepository.save(groupSeries);
+
+    // Registrar actividad
+    await this.groupActivityRepository.save({
+      group_id: groupId,
+      user_id: userId,
+      type: "series_removed",
+      series_id: seriesId,
+      series_name: series.name,
+    });
+
+    // Obtener información del usuario que eliminó la serie
+    const user = await this.usersService.findById(userId);
+
+    return {
+      success: true,
+      message: "Serie eliminada del grupo correctamente",
+      data: {
+        series_id: seriesId,
+        tmdb_id: series.tmdb_id,
+        series_name: series.name,
+        removed_by: {
+          userId: userId,
+          username: user?.username || "Usuario",
+          name: user?.name || "Usuario",
+        },
+        removed_at: new Date(),
+      },
+    };
+  }
+
+  async updateGroupImage(groupId: number, imageUrl: string): Promise<Group> {
+    const group = await this.groupRepository.findOne({
+      where: { id: groupId },
+    });
+
+    if (!group) {
+      throw new NotFoundException("Grupo no encontrado");
+    }
+
+    // Si ya tiene una imagen, eliminarla de S3
+    if (group.image_url) {
+      // Aquí podrías llamar al servicio S3 para eliminar la imagen anterior
+      // Por ahora solo actualizamos la URL
+    }
+
+    // Actualizar la URL de la imagen del grupo
+    await this.groupRepository.update(groupId, {
+      image_url: imageUrl,
+    });
+
+    // Retornar el grupo actualizado
+    return this.groupRepository.findOne({
+      where: { id: groupId },
+    });
+  }
+
+  /**
+   * Obtener próximos episodios de las series que el usuario está viendo en todos sus grupos
+   */
+  async getUserUpcomingEpisodes(userId: number) {
+    // Obtener todos los grupos donde el usuario es miembro
+    const userGroups = await this.groupMemberRepository.find({
+      where: { user_id: userId, is_active: true },
+      relations: ["group"],
+    });
+
+    const seriesWithEpisodes = [];
+
+    // Para cada grupo, obtener las series y sus próximos episodios
+    for (const membership of userGroups) {
+      const group = membership.group;
+
+      // Obtener series del grupo
+      const groupSeries = await this.groupSeriesRepository.find({
+        where: { group_id: group.id, is_active: true },
+        relations: ["series"],
+      });
+
+      // Para cada serie, obtener todos los episodios futuros
+      for (const groupSeriesItem of groupSeries) {
+        const series = groupSeriesItem.series;
+
+        try {
+          // Obtener detalles de la serie desde TMDB
+          const seriesDetails = await this.tmdbService.getSeriesDetails(
+            series.tmdb_id
+          );
+
+          const upcomingEpisodes = [];
+          const today = new Date();
+
+          // Usar next_episode_to_air si está disponible
+          if (
+            seriesDetails.next_episode_to_air &&
+            seriesDetails.next_episode_to_air.air_date
+          ) {
+            const nextEpisode = seriesDetails.next_episode_to_air;
+            const airDate = new Date(nextEpisode.air_date);
+
+            if (airDate >= today) {
+              upcomingEpisodes.push({
+                id: nextEpisode.id,
+                name: nextEpisode.name,
+                air_date: nextEpisode.air_date,
+                episode_number: nextEpisode.episode_number,
+                season_number: nextEpisode.season_number,
+                overview: nextEpisode.overview || "",
+                still_path: nextEpisode.still_path,
+                vote_average: nextEpisode.vote_average || 0,
+                vote_count: nextEpisode.vote_count || 0,
+                runtime: nextEpisode.runtime || null,
+                episode_type: nextEpisode.episode_type || "standard",
+              });
+            }
+          }
+
+          // Si no hay next_episode_to_air o está vacío, buscar en temporadas futuras
+          if (upcomingEpisodes.length === 0) {
+            const numberOfSeasons = seriesDetails.number_of_seasons || 1;
+
+            for (
+              let season = 1;
+              season <= Math.min(numberOfSeasons, 20);
+              season++
+            ) {
+              try {
+                const seasonData = await this.tmdbService.getSeriesSeasons(
+                  series.tmdb_id,
+                  season
+                );
+
+                if (
+                  seasonData &&
+                  seasonData.episodes &&
+                  seasonData.episodes.length > 0
+                ) {
+                  // Filtrar episodios futuros de esta temporada
+                  const futureEpisodesInSeason = seasonData.episodes
+                    .filter((episode) => {
+                      if (!episode.air_date) return false;
+                      const airDate = new Date(episode.air_date);
+                      return airDate >= today;
+                    })
+                    .map((episode) => ({
+                      id: episode.id,
+                      name: episode.name,
+                      air_date: episode.air_date,
+                      episode_number: episode.episode_number,
+                      season_number: episode.season_number,
+                      overview: episode.overview || "",
+                      still_path: episode.still_path,
+                      vote_average: episode.vote_average || 0,
+                      vote_count: episode.vote_count || 0,
+                      runtime: episode.runtime || null,
+                      episode_type: episode.episode_type || "standard",
+                    }));
+
+                  upcomingEpisodes.push(...futureEpisodesInSeason);
+                }
+              } catch (seasonError) {
+                console.log(
+                  `Error obteniendo temporada ${season} para serie ${series.name} (TMDB ID: ${series.tmdb_id}):`,
+                  seasonError.message
+                );
+                continue;
+              }
+            }
+          }
+
+          // Ordenar episodios por fecha de emisión
+          upcomingEpisodes.sort(
+            (a, b) =>
+              new Date(a.air_date).getTime() - new Date(b.air_date).getTime()
+          );
+
+          // Agregar la serie con sus episodios futuros
+          seriesWithEpisodes.push({
+            series_id: series.id,
+            series_name: series.name,
+            series_tmdb_id: series.tmdb_id,
+            group_id: group.id,
+            group_name: group.name,
+            poster_path: series.poster_path,
+            backdrop_path: series.backdrop_path,
+            overview: series.overview,
+            first_air_date: series.first_air_date,
+            number_of_seasons: series.number_of_seasons,
+            number_of_episodes: series.number_of_episodes,
+            vote_average: series.vote_average,
+            popularity: series.popularity,
+            upcoming_episodes: upcomingEpisodes,
+            total_upcoming_episodes: upcomingEpisodes.length,
+            tmdb_status: "success",
+            series_status: seriesDetails.status || "Unknown",
+            in_production: seriesDetails.in_production || false,
+            last_air_date: seriesDetails.last_air_date || null,
+          });
+        } catch (seriesError) {
+          console.log(
+            `Error obteniendo detalles de serie ${series.name} (TMDB ID: ${series.tmdb_id}):`,
+            seriesError.message
+          );
+
+          // Agregar la serie sin episodios si hay error, pero con información básica
+          seriesWithEpisodes.push({
+            series_id: series.id,
+            series_name: series.name,
+            series_tmdb_id: series.tmdb_id,
+            group_id: group.id,
+            group_name: group.name,
+            poster_path: series.poster_path,
+            backdrop_path: series.backdrop_path,
+            overview: series.overview,
+            first_air_date: series.first_air_date,
+            number_of_seasons: series.number_of_seasons,
+            number_of_episodes: series.number_of_episodes,
+            vote_average: series.vote_average,
+            popularity: series.popularity,
+            upcoming_episodes: [],
+            total_upcoming_episodes: 0,
+            tmdb_status: "error",
+            tmdb_error: seriesError.message,
+            series_status: "Unknown",
+            in_production: false,
+            last_air_date: null,
+          });
+        }
+      }
+    }
+
+    // Ordenar series por número de episodios futuros (más primero)
+    seriesWithEpisodes.sort(
+      (a, b) => b.total_upcoming_episodes - a.total_upcoming_episodes
+    );
+
+    return seriesWithEpisodes;
   }
 }

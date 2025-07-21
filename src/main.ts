@@ -1,17 +1,22 @@
 import { Logger, ValidationPipe } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
+import { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import helmet from "helmet";
+import { join } from "path";
 import { AppModule } from "./app.module";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const configService = app.get(ConfigService);
   const logger = new Logger("Bootstrap");
 
   // Security middleware
   app.use(helmet());
+
+  // Serve static files from public folder
+  app.useStaticAssets(join(__dirname, "..", "public"));
 
   // Global validation pipe
   app.useGlobalPipes(
@@ -24,7 +29,7 @@ async function bootstrap() {
 
   // CORS configuration - Permitir todo
   app.enableCors({
-    origin: "*", // Permitir cualquier origen
+    origin: true, // Permitir cualquier origen
     credentials: true,
     methods: "*", // Permitir todos los métodos
     allowedHeaders: "*", // Permitir todos los headers
@@ -51,6 +56,9 @@ async function bootstrap() {
   logger.log(`🚀 Application is running on: http://localhost:${port}`);
   logger.log(
     `📚 API Documentation available at: http://localhost:${port}/api/docs`
+  );
+  logger.log(
+    `🌐 Support page available at: http://localhost:${port}/support.html`
   );
 }
 

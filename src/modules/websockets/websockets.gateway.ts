@@ -439,6 +439,60 @@ export class WebSocketsGateway
         }
       }
 
+      // Emitir activity-changed a cada usuario del grupo SOLO si se marcó como visto
+      if (isWatched) {
+        try {
+          // Buscar la última actividad de tipo episode_watched para este usuario y grupo
+          const activity = await this.groupActivityRepository.findOne({
+            where: {
+              group_id: groupId,
+              user_id: user.id,
+              type: "episode_watched",
+            },
+            order: { created_at: "DESC" },
+          });
+          // Obtener info del usuario que realizó la acción
+          const userEntity = await this.groupsService["usersService"].findById(
+            user.id
+          );
+          // Obtener info del grupo
+          const groupEntity = await this.groupsService[
+            "groupRepository"
+          ].findOne({ where: { id: groupId } });
+          // Construir el payload
+          const activityPayload = {
+            id: activity.id,
+            group_id: activity.group_id,
+            user_id: activity.user_id,
+            type: activity.type,
+            series_id: activity.series_id,
+            series_name: activity.series_name,
+            episode_id: activity.episode_id,
+            episode_name: activity.episode_name,
+            comment: activity.comment,
+            rating: activity.rating,
+            created_at: activity.created_at,
+            user_name: userEntity ? `${userEntity.name}` : "",
+            group_name: groupEntity ? groupEntity.name : "",
+          };
+          // Obtener todos los miembros activos del grupo
+          const groupMembers = await this.groupsService[
+            "groupMemberRepository"
+          ].find({
+            where: { group_id: groupId, is_active: true },
+          });
+          for (const member of groupMembers) {
+            this.server
+              .to(`${member.user_id}`)
+              .emit("activity-changed", activityPayload);
+          }
+        } catch (activityError) {
+          this.logger.error(
+            `Error emitiendo activity-changed: ${activityError.message}`
+          );
+        }
+      }
+
       this.logger.log(
         `✅ Episodio ${episodeId} marcado como ${actionText} en grupo ${groupId}`
       );
@@ -745,6 +799,167 @@ export class WebSocketsGateway
   }
 
   /**
+   * Eliminar una serie de un grupo vía socket
+   * Evento: 'delete_series_from_group'
+   * Payload: { groupId: number, seriesId: number, roomId: string }
+   */
+  @SubscribeMessage("delete_series_from_group")
+  @UseGuards(WebSocketAuthGuard)
+  async handleDeleteSeriesFromGroup(
+    @MessageBody() data: { groupId: number; seriesId: number; roomId: string },
+    @ConnectedSocket() client: Socket
+  ) {
+    try {
+      const user = client.data.user;
+      const { groupId, seriesId, roomId } = data;
+
+      if (!user) {
+        client.emit("error", { message: "No autenticado" });
+        return;
+      }
+
+      this.logger.log(
+        `Usuario ${user.username} intentando eliminar serie ${seriesId} del grupo ${groupId}`
+      );
+
+      // Usar el GroupsService para la lógica
+      const result = await this.groupsService.removeSeriesFromGroup(
+        groupId,
+        seriesId,
+        user.id
+      );
+
+      // Extraer el groupId del roomId (roomId es "groupId+seriesId")
+      const groupRoomId = roomId.split("+")[0];
+
+      // Emitir evento al room del grupo (solo el número del grupo)
+      this.server.to(`${groupRoomId}`).emit("series-deleted", {
+        success: true,
+        message: "Serie eliminada del grupo correctamente",
+        data: result.data,
+      });
+
+      // Emitir el número actualizado de series
+      this.emitUpdatedNumberSeries(groupId);
+
+      // Enviar notificación push a todos los miembros del grupo (excepto al que eliminó)
+      try {
+        this.logger.log(
+          `📱 Preparando notificación push para serie eliminada del grupo ${groupId}`
+        );
+
+        const groupTokens =
+          await this.notificationHelperService.getGroupMemberTokens(
+            groupId,
+            user.id
+          );
+
+        this.logger.log(
+          `📱 Encontrados ${groupTokens.length} tokens para notificar en grupo ${groupId}`
+        );
+
+        if (groupTokens.length > 0) {
+          const group = await this.groupsService.getGroupById(groupId, user.id);
+
+          await this.pushNotificationService.notifySeriesRemoved(
+            group.name,
+            result.data.series_name,
+            groupTokens,
+            user.username
+          );
+
+          this.logger.log(
+            `📱 Notificación push enviada a ${groupTokens.length} usuarios del grupo ${groupId} por serie eliminada: ${result.data.series_name}`
+          );
+        } else {
+          this.logger.log(
+            `⚠️ No se encontraron tokens de push para notificar en grupo ${groupId}`
+          );
+        }
+      } catch (notificationError) {
+        this.logger.error(
+          `Error enviando notificación push: ${notificationError.message}`
+        );
+        this.logger.error(`Stack trace: ${notificationError.stack}`);
+      }
+
+      // Emitir activity-changed a cada usuario del grupo
+      try {
+        // Buscar la última actividad de tipo series_removed para este usuario y grupo
+        const activity = await this.groupActivityRepository.findOne({
+          where: {
+            group_id: groupId,
+            user_id: user.id,
+            type: "series_removed",
+          },
+          order: { created_at: "DESC" },
+        });
+
+        if (activity) {
+          // Obtener info del usuario que realizó la acción
+          const userEntity = await this.groupsService["usersService"].findById(
+            user.id
+          );
+          // Obtener info del grupo
+          const groupEntity = await this.groupsService[
+            "groupRepository"
+          ].findOne({ where: { id: groupId } });
+
+          // Construir el payload
+          const activityPayload = {
+            id: activity.id,
+            group_id: activity.group_id,
+            user_id: activity.user_id,
+            type: activity.type,
+            series_id: activity.series_id,
+            series_name: activity.series_name,
+            episode_id: activity.episode_id,
+            episode_name: activity.episode_name,
+            comment: activity.comment,
+            rating: activity.rating,
+            created_at: activity.created_at,
+            user_name: userEntity ? `${userEntity.name}` : "",
+            group_name: groupEntity ? groupEntity.name : "",
+          };
+
+          // Obtener todos los miembros activos del grupo
+          const groupMembers = await this.groupsService[
+            "groupMemberRepository"
+          ].find({
+            where: { group_id: groupId, is_active: true },
+          });
+
+          for (const member of groupMembers) {
+            this.server
+              .to(`${member.user_id}`)
+              .emit("activity-changed", activityPayload);
+          }
+        }
+      } catch (activityError) {
+        this.logger.error(
+          `Error emitiendo activity-changed: ${activityError.message}`
+        );
+      }
+
+      // Confirmar al usuario que envió el socket
+      client.emit("series-deleted-confirmed", {
+        success: true,
+        message: "Serie eliminada exitosamente",
+        data: result.data,
+      });
+
+      this.logger.log(
+        `✅ Serie ${seriesId} eliminada exitosamente del grupo ${groupId} por ${user.username}`
+      );
+    } catch (error) {
+      this.logger.error(`Error al eliminar serie del grupo: ${error.message}`);
+      client.emit("error", {
+        message: "Error al eliminar serie del grupo: " + error.message,
+      });
+    }
+  }
+
+  /**
    * Unirse a un room de usuario específico
    * Evento: 'join_user_room'
    * Payload: { userId: number | string }
@@ -955,6 +1170,151 @@ export class WebSocketsGateway
       }
     } catch (error) {
       client.emit("error", { message: "Error al procesar el comentario" });
+    }
+  }
+
+  /**
+   * Añadir un miembro a un grupo
+   * Evento: 'add_member_to_group'
+   * Payload: { group_id: number, user_id: number, username: string, added_by: string }
+   */
+  @SubscribeMessage("add_member_to_group")
+  @UseGuards(WebSocketAuthGuard)
+  async handleAddMemberToGroup(
+    @MessageBody()
+    data: {
+      group_id: number;
+      user_id: number;
+      username: string;
+      added_by: string;
+    },
+    @ConnectedSocket() client: Socket
+  ) {
+    try {
+      const user = client.data.user;
+      const { group_id, user_id } = data;
+
+      this.logger.log(
+        `Usuario ${user.username} intentando añadir usuario ${data.username} (ID: ${user_id}) al grupo ${group_id}`
+      );
+
+      // Añadir el miembro al grupo usando el servicio
+      const result = await this.groupsService.addMemberToGroup(
+        group_id,
+        user_id,
+        user.id
+      );
+
+      // Emitir el evento de miembro añadido al grupo
+      this.server.to(`${group_id}`).emit("member-added-to-group", result);
+
+      // Emitir activity-changed a cada usuario del grupo
+      try {
+        // Buscar la última actividad de tipo member_added para este usuario y grupo
+        const activity = await this.groupActivityRepository.findOne({
+          where: { group_id: group_id, user_id: user_id, type: "member_added" },
+          order: { created_at: "DESC" },
+        });
+        // Obtener info del usuario que realizó la acción
+        const userEntity =
+          await this.groupsService["usersService"].findById(user_id);
+        // Obtener info del grupo
+        const groupEntity = await this.groupsService["groupRepository"].findOne(
+          { where: { id: group_id } }
+        );
+        // Construir el payload
+        const activityPayload = {
+          id: activity.id,
+          group_id: activity.group_id,
+          user_id: activity.user_id,
+          type: activity.type,
+          series_id: activity.series_id,
+          series_name: activity.series_name,
+          episode_id: activity.episode_id,
+          episode_name: activity.episode_name,
+          comment: activity.comment,
+          rating: activity.rating,
+          created_at: activity.created_at,
+          user_name: userEntity ? `${userEntity.name}` : "",
+          group_name: groupEntity ? groupEntity.name : "",
+        };
+        // Obtener todos los miembros activos del grupo
+        const groupMembers = await this.groupsService[
+          "groupMemberRepository"
+        ].find({
+          where: { group_id: group_id, is_active: true },
+        });
+        for (const member of groupMembers) {
+          this.server
+            .to(`${member.user_id}`)
+            .emit("activity-changed", activityPayload);
+        }
+      } catch (activityError) {
+        this.logger.error(
+          `Error emitiendo activity-changed: ${activityError.message}`
+        );
+      }
+
+      // Enviar notificación push a todos los miembros del grupo (excepto al que añadió)
+      try {
+        this.logger.log(
+          `📱 Preparando notificación push para miembro añadido en grupo ${group_id}`
+        );
+
+        const groupTokens =
+          await this.notificationHelperService.getGroupMemberTokens(
+            group_id,
+            user.id
+          );
+
+        this.logger.log(
+          `📱 Encontrados ${groupTokens.length} tokens para notificar en grupo ${group_id}`
+        );
+
+        if (groupTokens.length > 0) {
+          // Obtener información del grupo
+          const group = await this.groupsService.getGroupById(
+            group_id,
+            user.id
+          );
+
+          await this.pushNotificationService.notifyMemberAdded(
+            group.name,
+            result.data.full_name,
+            result.added_by,
+            groupTokens
+          );
+
+          this.logger.log(
+            `📱 Notificación push enviada a ${groupTokens.length} usuarios del grupo ${group_id} por miembro añadido: ${result.data.full_name}`
+          );
+        } else {
+          this.logger.log(
+            `⚠️ No se encontraron tokens de push para notificar en grupo ${group_id}`
+          );
+        }
+      } catch (notificationError) {
+        this.logger.error(
+          `Error enviando notificación push: ${notificationError.message}`
+        );
+        this.logger.error(`Stack trace: ${notificationError.stack}`);
+      }
+
+      // Confirmar al usuario que envió el socket
+      client.emit("member-added-confirmed", {
+        success: true,
+        message: "Miembro añadido exitosamente",
+        data: result.data,
+      });
+
+      this.logger.log(
+        `✅ Usuario ${data.username} añadido exitosamente al grupo ${group_id}`
+      );
+    } catch (error) {
+      this.logger.error(`Error al añadir miembro al grupo: ${error.message}`);
+      client.emit("error", {
+        message: "Error al añadir miembro al grupo: " + error.message,
+      });
     }
   }
 }

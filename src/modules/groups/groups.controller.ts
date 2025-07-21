@@ -56,6 +56,12 @@ export class GroupsController {
                     type: "string",
                     example: "Grupo familiar para seguir series juntos",
                   },
+                  image_url: {
+                    type: "string",
+                    nullable: true,
+                    example:
+                      "https://episyncdv.s3.eu-north-1.amazonaws.com/groups/group-photos/group-123-photo.jpg",
+                  },
                   created_at: {
                     type: "string",
                     format: "date-time",
@@ -587,6 +593,124 @@ export class GroupsController {
         lastname: c.user?.lastname || null,
         timestamp: c.created_at,
       })),
+    };
+  }
+
+  @Get("user/upcoming-episodes")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      "Obtener todas las series de los grupos del usuario con sus episodios futuros",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Series con episodios futuros obtenidas correctamente",
+    schema: {
+      properties: {
+        success: { type: "boolean", example: true },
+        status: { type: "number", example: 200 },
+        message: {
+          type: "string",
+          example: "Series con episodios futuros obtenidas correctamente",
+        },
+        data: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              series_id: { type: "number", example: 1 },
+              series_name: { type: "string", example: "Breaking Bad" },
+              series_tmdb_id: { type: "number", example: 1396 },
+              group_id: { type: "number", example: 1 },
+              group_name: { type: "string", example: "Familia Viñals" },
+              poster_path: { type: "string", example: "/path/to/poster.jpg" },
+              backdrop_path: {
+                type: "string",
+                example: "/path/to/backdrop.jpg",
+              },
+              overview: { type: "string", example: "Descripción de la serie" },
+              first_air_date: { type: "string", example: "2008-01-20" },
+              number_of_seasons: { type: "number", example: 5 },
+              number_of_episodes: { type: "number", example: 62 },
+              vote_average: { type: "number", example: 9.5 },
+              popularity: { type: "number", example: 100.0 },
+              total_upcoming_episodes: { type: "number", example: 3 },
+              upcoming_episodes: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "number", example: 123456 },
+                    name: { type: "string", example: "Nombre del Episodio" },
+                    air_date: { type: "string", example: "2025-01-15" },
+                    episode_number: { type: "number", example: 1 },
+                    season_number: { type: "number", example: 2 },
+                    overview: {
+                      type: "string",
+                      example: "Descripción del episodio",
+                    },
+                    still_path: {
+                      type: "string",
+                      example: "/path/to/still.jpg",
+                    },
+                    vote_average: { type: "number", example: 8.5 },
+                    vote_count: { type: "number", example: 150 },
+                    runtime: { type: "number", example: 45 },
+                    episode_type: {
+                      type: "string",
+                      example: "standard",
+                      description:
+                        "Tipo de episodio: 'standard', 'finale', 'pilot', etc.",
+                    },
+                  },
+                },
+              },
+              tmdb_status: {
+                type: "string",
+                example: "success",
+                description:
+                  "Estado de la consulta a TMDB: 'success' o 'error'",
+              },
+              tmdb_error: {
+                type: "string",
+                example: "Error al obtener detalles de la serie en TMDB",
+                description: "Mensaje de error si tmdb_status es 'error'",
+              },
+              series_status: {
+                type: "string",
+                example: "Returning Series",
+                description: "Estado de la serie según TMDB",
+              },
+              in_production: {
+                type: "boolean",
+                example: true,
+                description: "Indica si la serie está en producción",
+              },
+              last_air_date: {
+                type: "string",
+                example: "2024-10-09",
+                description: "Fecha del último episodio emitido",
+              },
+            },
+          },
+        },
+        error: { type: "null", example: null },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: "No autorizado" })
+  async getUserUpcomingEpisodes(@Req() request: Request) {
+    const userId = request.user["id"];
+    const seriesWithEpisodes =
+      await this.groupsService.getUserUpcomingEpisodes(userId);
+
+    return {
+      success: true,
+      status: 200,
+      message: "Series con episodios futuros obtenidas correctamente",
+      data: seriesWithEpisodes,
+      error: null,
     };
   }
 }

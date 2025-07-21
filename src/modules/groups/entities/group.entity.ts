@@ -1,9 +1,16 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
-import { GroupMember } from './group-member.entity';
-import { GroupSeries } from './group-series.entity';
-import { GroupActivity } from './group-activity.entity';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  OneToMany,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from "typeorm";
+import { GroupActivity } from "./group-activity.entity";
+import { GroupMember } from "./group-member.entity";
+import { GroupSeries } from "./group-series.entity";
 
-@Entity('groups')
+@Entity("groups")
 export class Group {
   @PrimaryGeneratedColumn()
   id: number;
@@ -11,27 +18,27 @@ export class Group {
   @Column({ length: 100 })
   name: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: "text", nullable: true })
   description: string;
 
-  @Column({ length: 100, nullable: true })
+  @Column({ length: 1000, nullable: true })
   image_url: string;
 
   @Column({ default: false })
   is_private: boolean;
 
-  @CreateDateColumn({ type: 'timestamp' })
+  @CreateDateColumn({ type: "timestamp" })
   created_at: Date;
 
-  @UpdateDateColumn({ type: 'timestamp' })
+  @UpdateDateColumn({ type: "timestamp" })
   updated_at: Date;
 
-  @OneToMany(() => GroupMember, member => member.group)
+  @OneToMany(() => GroupMember, (member) => member.group)
   members: GroupMember[];
 
-  @OneToMany(() => GroupSeries, groupSeries => groupSeries.group)
+  @OneToMany(() => GroupSeries, (groupSeries) => groupSeries.group)
   series: GroupSeries[];
 
-  @OneToMany(() => GroupActivity, activity => activity.group)
+  @OneToMany(() => GroupActivity, (activity) => activity.group)
   activities: GroupActivity[];
-} 
+}

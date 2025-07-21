@@ -14,6 +14,7 @@ import { GroupsModule } from "@/modules/groups/groups.module";
 import { HealthModule } from "@/modules/health/health.module";
 import { NotificationsModule } from "@/modules/notifications/notifications.module";
 import { SeriesModule } from "@/modules/series/series.module";
+import { UploadModule } from "@/modules/upload/upload.module";
 import { UsersModule } from "@/modules/users/users.module";
 import { WebSocketsModule } from "@/modules/websockets/websockets.module";
 
@@ -59,6 +60,7 @@ import { validationSchema } from "@/config/validation";
     SeriesModule,
     DevelopmentModule,
     WebSocketsModule,
+    UploadModule,
 
     // Shared modules
     SharedModule,

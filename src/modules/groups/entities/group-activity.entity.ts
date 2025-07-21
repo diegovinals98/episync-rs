@@ -30,6 +30,7 @@ export class GroupActivity {
       "episode_watched",
       "episode_rated",
       "comment_added",
+      "member_added",
     ],
   })
   type: string;
