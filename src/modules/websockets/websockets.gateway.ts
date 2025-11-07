@@ -347,6 +347,10 @@ export class WebSocketsGateway
       }
 
       // Guardar en la BD usando el servicio de episodios con datos proporcionados (toggle)
+      this.logger.log(
+        `Marcando episodio: userId=${user.id}, episodeId=${episodeId}, seriesId=${seriesId}, episodeNumber=${episodeNumber}, seasonNumber=${seasonNumber}, groupId=${groupId}`
+      );
+
       const result = await this.episodesService.markEpisodeWatchedWithData(
         user.id,
         episodeId, // TMDB episode ID
@@ -354,6 +358,10 @@ export class WebSocketsGateway
         episodeNumber,
         seasonNumber,
         groupId
+      );
+
+      this.logger.log(
+        `Resultado de marcar episodio: action=${result.action}, episodeId=${result.episode?.id}`
       );
 
       const isWatched = result.action === "watched";
@@ -515,14 +523,33 @@ export class WebSocketsGateway
       const userEpisodeRepository = this.episodesService.userEpisodeRepository;
       const seriesRepository = this.episodesService.seriesRepository;
 
-      // Obtener la serie
-      const series = await seriesRepository.findOne({
+      // Obtener la serie - puede ser ID interno o TMDB ID
+      let series = await seriesRepository.findOne({
         where: { id: seriesId },
       });
 
+      // Si no se encuentra por ID interno, intentar buscar por TMDB ID
       if (!series) {
+        this.logger.log(
+          `Serie no encontrada por ID interno ${seriesId}, intentando buscar por TMDB ID`
+        );
+        series = await seriesRepository.findOne({
+          where: { tmdb_id: seriesId },
+        });
+      }
+
+      if (!series) {
+        this.logger.error(
+          `Serie no encontrada: ni por ID interno ni por TMDB ID (${seriesId})`
+        );
         throw new Error("Serie no encontrada");
       }
+
+      // Usar el ID interno de la serie para las consultas
+      const internalSeriesId = series.id;
+      this.logger.log(
+        `Serie encontrada: ID interno=${internalSeriesId}, TMDB ID=${series.tmdb_id}, nombre=${series.name}`
+      );
 
       // Obtener todos los miembros del grupo
       const groupMembers = await groupMemberRepository.find({
@@ -540,7 +567,7 @@ export class WebSocketsGateway
         const watchedEpisodes = await userEpisodeRepository.find({
           where: {
             user_id: member.user.id,
-            series_id: seriesId,
+            series_id: internalSeriesId,
             watched: true,
           },
           relations: ["episode"],
@@ -588,7 +615,7 @@ export class WebSocketsGateway
       }
 
       return {
-        series_id: seriesId,
+        series_id: internalSeriesId,
         tmdb_id: series.tmdb_id,
         members_progress: membersProgress,
       };
@@ -800,10 +827,10 @@ export class WebSocketsGateway
 
   /**
    * Eliminar una serie de un grupo vía socket
-   * Evento: 'delete_series_from_group'
+   * Evento: 'remove_series_from_group'
    * Payload: { groupId: number, seriesId: number, roomId: string }
    */
-  @SubscribeMessage("delete_series_from_group")
+  @SubscribeMessage("remove_series_from_group")
   @UseGuards(WebSocketAuthGuard)
   async handleDeleteSeriesFromGroup(
     @MessageBody() data: { groupId: number; seriesId: number; roomId: string },
@@ -832,7 +859,14 @@ export class WebSocketsGateway
       // Extraer el groupId del roomId (roomId es "groupId+seriesId")
       const groupRoomId = roomId.split("+")[0];
 
-      // Emitir evento al room del grupo (solo el número del grupo)
+      // Emitir evento al room específico de la serie (groupId+seriesId)
+      this.server.to(`${roomId}`).emit("series-deleted", {
+        success: true,
+        message: "Serie eliminada del grupo correctamente",
+        data: result.data,
+      });
+
+      // También emitir al room del grupo (solo el número del grupo) para notificar a todos
       this.server.to(`${groupRoomId}`).emit("series-deleted", {
         success: true,
         message: "Serie eliminada del grupo correctamente",

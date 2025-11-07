@@ -496,6 +496,91 @@ export class GroupsService {
         popularity: popularity || 0,
       });
       await this.seriesRepository.save(series);
+    } else {
+      // Si la serie ya existe, actualizamos la información si hay datos nuevos o más completos
+      let updated = false;
+
+      // Actualizar nombre si es diferente y no está vacío
+      if (name && name !== series.name) {
+        series.name = name;
+        updated = true;
+      }
+
+      // Actualizar overview si hay uno nuevo y no está vacío
+      if (overview && overview !== series.overview) {
+        series.overview = overview;
+        updated = true;
+      }
+
+      // Actualizar poster_path si hay uno nuevo
+      if (poster_path && poster_path !== series.poster_path) {
+        series.poster_path = poster_path;
+        updated = true;
+      } else if (!series.poster_path && poster_url) {
+        // Si no tiene poster_path pero viene poster_url, extraerlo
+        const urlParts = poster_url.split("/");
+        series.poster_path = "/" + urlParts[urlParts.length - 1];
+        updated = true;
+      }
+
+      // Actualizar backdrop_path si hay uno nuevo
+      if (backdrop_path && backdrop_path !== series.backdrop_path) {
+        series.backdrop_path = backdrop_path;
+        updated = true;
+      }
+
+      // Actualizar número de temporadas si es mayor
+      if (
+        typeof addSeriesDto.number_of_seasons !== "undefined" &&
+        addSeriesDto.number_of_seasons !== null &&
+        (!series.number_of_seasons ||
+          addSeriesDto.number_of_seasons > series.number_of_seasons)
+      ) {
+        series.number_of_seasons = addSeriesDto.number_of_seasons;
+        updated = true;
+      }
+
+      // Actualizar número de episodios si es mayor
+      if (
+        typeof addSeriesDto.number_of_episodes !== "undefined" &&
+        addSeriesDto.number_of_episodes !== null &&
+        (!series.number_of_episodes ||
+          addSeriesDto.number_of_episodes > series.number_of_episodes)
+      ) {
+        series.number_of_episodes = addSeriesDto.number_of_episodes;
+        updated = true;
+      }
+
+      // Actualizar géneros si hay nuevos
+      if (addSeriesDto.genres) {
+        const newGenres =
+          typeof addSeriesDto.genres === "string"
+            ? JSON.parse(addSeriesDto.genres)
+            : addSeriesDto.genres;
+        if (JSON.stringify(newGenres) !== JSON.stringify(series.genres)) {
+          series.genres = newGenres;
+          updated = true;
+        }
+      }
+
+      // Actualizar vote_average y vote_count si son más recientes (mayor vote_count)
+      if (vote_count && vote_count > (series.vote_count || 0)) {
+        series.vote_average = vote_average || series.vote_average;
+        series.vote_count = vote_count;
+        updated = true;
+      }
+
+      // Actualizar popularidad si es mayor
+      if (popularity && popularity > (series.popularity || 0)) {
+        series.popularity = popularity;
+        updated = true;
+      }
+
+      // Guardar solo si hubo actualizaciones
+      if (updated) {
+        series.updated_at = new Date();
+        await this.seriesRepository.save(series);
+      }
     }
 
     // Verificar que la serie no esté ya en el grupo

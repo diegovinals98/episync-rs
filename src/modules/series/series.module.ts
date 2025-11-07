@@ -3,6 +3,7 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { GroupActivity } from "../groups/entities/group-activity.entity";
 import { GroupMember } from "../groups/entities/group-member.entity";
 import { WebSocketsModule } from "../websockets/websockets.module";
+import { EpisodesController } from "./episodes.controller";
 import { Episode } from "./entities/episode.entity";
 import { Series } from "./entities/series.entity";
 import { UserEpisode } from "./entities/user-episode.entity";
@@ -20,7 +21,7 @@ import { TmdbService } from "./tmdb.service";
     ]),
     forwardRef(() => WebSocketsModule),
   ],
-  controllers: [],
+  controllers: [EpisodesController],
   providers: [TmdbService, EpisodesService],
   exports: [TmdbService, EpisodesService],
 })

@@ -344,4 +344,99 @@ export class EpisodesService {
       seriesCount: seriesWatched,
     };
   }
+
+  /**
+   * Obtener próximos episodios de las series que el usuario está viendo
+   */
+  async getUpcomingEpisodes(
+    userId: number,
+    limit: number = 10,
+    offset: number = 0
+  ) {
+    try {
+      // Obtener las series únicas que el usuario está viendo
+      const userEpisodes = await this.userEpisodeRepository
+        .createQueryBuilder("ue")
+        .select("DISTINCT ue.series_id", "series_id")
+        .where("ue.user_id = :userId", { userId })
+        .andWhere("ue.watched = :watched", { watched: true })
+        .getRawMany();
+
+      if (userEpisodes.length === 0) {
+        return {
+          episodes: [],
+          total: 0,
+          limit,
+          offset,
+        };
+      }
+
+      const seriesIds = userEpisodes.map((ue) => ue.series_id);
+
+      // Obtener información de las series desde la base de datos
+      const series = await this.seriesRepository.find({
+        where: seriesIds.map((id) => ({ id })),
+      });
+
+      // Obtener próximos episodios de cada serie desde TMDB
+      const upcomingEpisodes = [];
+
+      for (const serie of series) {
+        try {
+          const seriesDetails = await this.tmdbService.getSeriesDetails(
+            serie.tmdb_id
+          );
+
+          // Verificar si hay un próximo episodio
+          if (seriesDetails.next_episode_to_air) {
+            const nextEpisode = seriesDetails.next_episode_to_air;
+            const airDate = nextEpisode.air_date
+              ? new Date(nextEpisode.air_date)
+              : null;
+
+            // Solo incluir episodios con fecha de emisión en el futuro
+            if (airDate && airDate > new Date()) {
+              upcomingEpisodes.push({
+                ...nextEpisode,
+                series: {
+                  id: serie.tmdb_id,
+                  name: serie.name,
+                  poster_path: serie.poster_path,
+                },
+                air_date: nextEpisode.air_date,
+              });
+            }
+          }
+        } catch (error) {
+          // Si hay un error al obtener los detalles de la serie, continuar con la siguiente
+          console.error(
+            `Error obteniendo detalles de serie ${serie.tmdb_id}:`,
+            error.message
+          );
+          continue;
+        }
+      }
+
+      // Ordenar por fecha de emisión (más próximos primero)
+      upcomingEpisodes.sort((a, b) => {
+        const dateA = a.air_date ? new Date(a.air_date).getTime() : 0;
+        const dateB = b.air_date ? new Date(b.air_date).getTime() : 0;
+        return dateA - dateB;
+      });
+
+      const total = upcomingEpisodes.length;
+
+      // Aplicar paginación
+      const paginatedEpisodes = upcomingEpisodes.slice(offset, offset + limit);
+
+      return {
+        episodes: paginatedEpisodes,
+        total,
+        limit,
+        offset,
+      };
+    } catch (error) {
+      throw new Error(`Error al obtener próximos episodios: ${error.message}`);
+    }
+  }
 }
