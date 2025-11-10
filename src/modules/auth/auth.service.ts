@@ -1,11 +1,14 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
-import { UsersService } from '../users/users.service';
-import { RegisterDto } from './dto/register.dto';
-import { RefreshTokenService } from './refresh-token.service';
-import * as bcrypt from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
+import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { JwtService } from "@nestjs/jwt";
+import { InjectRepository } from "@nestjs/typeorm";
+import * as bcrypt from "bcryptjs";
+import { Repository } from "typeorm";
+import { v4 as uuidv4 } from "uuid";
+import { UserPushToken } from "../users/entities/user-push-token.entity";
+import { UsersService } from "../users/users.service";
+import { RegisterDto } from "./dto/register.dto";
+import { RefreshTokenService } from "./refresh-token.service";
 
 @Injectable()
 export class AuthService {
@@ -14,12 +17,18 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private refreshTokenService: RefreshTokenService,
+    @InjectRepository(UserPushToken)
+    private userPushTokenRepository: Repository<UserPushToken>
   ) {}
 
-  async register(registerDto: RegisterDto, deviceInfo?: string, ipAddress?: string) {
+  async register(
+    registerDto: RegisterDto,
+    deviceInfo?: string,
+    ipAddress?: string
+  ) {
     // Crear el usuario con un token de verificación
     const verificationToken = uuidv4();
-    
+
     const user = await this.usersService.create({
       ...registerDto,
       verification_token: verificationToken,
@@ -27,7 +36,12 @@ export class AuthService {
     });
 
     // Generar tokens
-    const tokens = await this.getTokens(user.id, user.username, deviceInfo, ipAddress);
+    const tokens = await this.getTokens(
+      user.id,
+      user.username,
+      deviceInfo,
+      ipAddress
+    );
 
     // Actualizar último login
     await this.usersService.updateLastLogin(user.id);
@@ -35,7 +49,7 @@ export class AuthService {
     // Devolver respuesta
     return {
       success: true,
-      message: 'Usuario registrado correctamente',
+      message: "Usuario registrado correctamente",
       data: {
         user: {
           id: user.id,
@@ -63,13 +77,18 @@ export class AuthService {
         return result;
       }
 
-      throw new UnauthorizedException('Credenciales inválidas');
+      throw new UnauthorizedException("Credenciales inválidas");
     } catch (error) {
-      throw new UnauthorizedException('Credenciales inválidas');
+      throw new UnauthorizedException("Credenciales inválidas");
     }
   }
 
-  async getTokens(userId: number, username: string, deviceInfo?: string, ipAddress?: string) {
+  async getTokens(
+    userId: number,
+    username: string,
+    deviceInfo?: string,
+    ipAddress?: string
+  ) {
     // Obtener el usuario completo para incluir sus datos en el token
     const user = await this.usersService.findById(userId);
 
@@ -82,17 +101,14 @@ export class AuthService {
       email: user.email,
       avatar_url: user.avatar_url,
       role: user.role,
-      email_verified: user.email_verified
+      email_verified: user.email_verified,
     };
 
     // Generar access token
-    const accessToken = await this.jwtService.signAsync(
-      payload,
-      {
-        secret: this.configService.get('jwt.secret'),
-        expiresIn: this.configService.get('jwt.expiresIn'),
-      },
-    );
+    const accessToken = await this.jwtService.signAsync(payload, {
+      secret: this.configService.get("jwt.secret"),
+      expiresIn: this.configService.get("jwt.expiresIn"),
+    });
 
     // Generar refresh token y guardarlo en la base de datos
     const refreshTokenExpiresIn = 7 * 24 * 60 * 60; // 7 días en segundos
@@ -109,18 +125,23 @@ export class AuthService {
     };
   }
 
-  async refreshTokens(refreshToken: string, deviceInfo?: string, ipAddress?: string) {
+  async refreshTokens(
+    refreshToken: string,
+    deviceInfo?: string,
+    ipAddress?: string
+  ) {
     try {
       // Validar y rotar el token
-      const { userId, newToken } = await this.refreshTokenService.validateAndRotateToken(
-        refreshToken,
-        deviceInfo,
-        ipAddress
-      );
-      
+      const { userId, newToken } =
+        await this.refreshTokenService.validateAndRotateToken(
+          refreshToken,
+          deviceInfo,
+          ipAddress
+        );
+
       // Obtener el usuario
       const user = await this.usersService.findById(userId);
-      
+
       // Generar un nuevo access token
       const payload = {
         sub: userId,
@@ -131,23 +152,20 @@ export class AuthService {
         email: user.email,
         avatar_url: user.avatar_url,
         role: user.role,
-        email_verified: user.email_verified
+        email_verified: user.email_verified,
       };
-      
-      const accessToken = await this.jwtService.signAsync(
-        payload,
-        {
-          secret: this.configService.get('jwt.secret'),
-          expiresIn: this.configService.get('jwt.expiresIn'),
-        },
-      );
-      
+
+      const accessToken = await this.jwtService.signAsync(payload, {
+        secret: this.configService.get("jwt.secret"),
+        expiresIn: this.configService.get("jwt.expiresIn"),
+      });
+
       // Actualizar último login
       await this.usersService.updateLastLogin(userId);
-      
+
       return {
         success: true,
-        message: 'Tokens refreshed successfully',
+        message: "Tokens refreshed successfully",
         data: {
           accessToken,
           refreshToken: newToken,
@@ -167,55 +185,81 @@ export class AuthService {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      throw new UnauthorizedException('Failed to refresh tokens');
+      throw new UnauthorizedException("Failed to refresh tokens");
     }
   }
 
   async logout(userId: number, refreshToken: string) {
     // Revocar el token específico
     await this.refreshTokenService.revokeRefreshToken(userId, refreshToken);
-    
+
+    // Eliminar todos los tokens de notificaciones push del usuario
+    try {
+      await this.userPushTokenRepository.delete({ user_id: userId });
+    } catch (error) {
+      // Log el error pero no fallar el logout si hay un problema con los push tokens
+      console.error("Error eliminando push tokens en logout:", error);
+    }
+
     return {
       success: true,
-      message: 'Sesión cerrada correctamente',
+      message: "Sesión cerrada correctamente",
     };
   }
 
   async logoutAll(userId: number) {
     // Revocar todos los tokens del usuario
     await this.refreshTokenService.revokeAllUserTokens(userId);
-    
+
+    // Eliminar todos los tokens de notificaciones push del usuario
+    try {
+      await this.userPushTokenRepository.delete({ user_id: userId });
+    } catch (error) {
+      // Log el error pero no fallar el logout si hay un problema con los push tokens
+      console.error("Error eliminando push tokens en logoutAll:", error);
+    }
+
     return {
       success: true,
-      message: 'Todas las sesiones cerradas correctamente',
+      message: "Todas las sesiones cerradas correctamente",
     };
   }
 
-  async login(email: string, password: string, deviceInfo?: string, ipAddress?: string) {
+  async login(
+    email: string,
+    password: string,
+    deviceInfo?: string,
+    ipAddress?: string
+  ) {
     // Buscar el usuario por email
     const user = await this.usersService.findByEmail(email);
-    
+
     // Verificar si el usuario existe
     if (!user) {
-      throw new UnauthorizedException('User does not exist');
+      throw new UnauthorizedException("User does not exist");
     }
-    
+
     // Verificar la contraseña
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid password');
+      throw new UnauthorizedException("Invalid password");
     }
-    
+
     // Generar tokens
-    const tokens = await this.getTokens(user.id, user.username, deviceInfo, ipAddress);
-    
+    const tokens = await this.getTokens(
+      user.id,
+      user.username,
+      deviceInfo,
+      ipAddress
+    );
+
     // Actualizar último login
     await this.usersService.updateLastLogin(user.id);
-    
+
     // Devolver respuesta
     return {
       success: true,
-      message: 'Login exitoso',
+      message: "Login exitoso",
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
@@ -232,4 +276,4 @@ export class AuthService {
       },
     };
   }
-} 
+}
