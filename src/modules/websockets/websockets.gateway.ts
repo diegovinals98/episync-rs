@@ -433,7 +433,9 @@ export class WebSocketsGateway
               series ? series.name : `Serie ${seriesId}`,
               episodeNumber,
               user.username,
-              groupTokens
+              groupTokens,
+              groupId,
+              seriesId
             );
 
             this.logger.log(

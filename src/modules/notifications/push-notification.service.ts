@@ -145,7 +145,9 @@ export class PushNotificationService {
     seriesName: string,
     episodeNumber: number,
     username: string,
-    userTokens: string[]
+    userTokens: string[],
+    groupId?: number,
+    seriesId?: number
   ) {
     const title = "Episodio marcado como visto";
     const body = `${username} marcó el episodio ${episodeNumber} de ${seriesName} como visto`;
@@ -156,6 +158,8 @@ export class PushNotificationService {
       episodeNumber,
       username,
       timestamp: new Date().toISOString(),
+      seriesId,
+      groupId,
     };
 
     return this.sendPushNotificationToMultiple(
