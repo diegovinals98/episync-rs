@@ -428,11 +428,15 @@ export class WebSocketsGateway
               where: { id: seriesId },
             });
 
+            // Obtener nombre completo del usuario
+            const userName = user.name || user.username;
+
             await this.pushNotificationService.notifyEpisodeWatched(
               group.name,
               series ? series.name : `Serie ${seriesId}`,
               episodeNumber,
-              user.username,
+              seasonNumber,
+              userName,
               groupTokens,
               groupId,
               seriesId
@@ -799,11 +803,14 @@ export class WebSocketsGateway
             user.id
           );
 
+          // Obtener nombre completo del usuario
+          const userName = user.name || user.username;
+
           await this.pushNotificationService.notifySeriesAdded(
             group.name,
             data.addSeriesDto.name,
             groupTokens,
-            user.username
+            userName
           );
 
           this.logger.log(
@@ -897,11 +904,14 @@ export class WebSocketsGateway
         if (groupTokens.length > 0) {
           const group = await this.groupsService.getGroupById(groupId, user.id);
 
+          // Obtener nombre completo del usuario
+          const userName = user.name || user.username;
+
           await this.pushNotificationService.notifySeriesRemoved(
             group.name,
             result.data.series_name,
             groupTokens,
-            user.username
+            userName
           );
 
           this.logger.log(
@@ -1183,11 +1193,16 @@ export class WebSocketsGateway
             where: { id: Number(data.seriesId) },
           });
 
+          // Usar el nombre completo del usuario (name + lastname o solo name)
+          const userName =
+            name && lastname ? `${name} ${lastname}` : name || username;
+
           await this.pushNotificationService.notifyCommentAdded(
             group.name,
             series ? series.name : `Serie ${data.seriesId}`,
-            username,
-            groupTokens
+            userName,
+            groupTokens,
+            data.message
           );
 
           this.logger.log(

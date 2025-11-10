@@ -12,7 +12,7 @@ export class PushNotificationService {
     title: string,
     body: string,
     subtitle: string = "",
-    data: any = {}
+    data: any = null
   ) {
     if (!Array.isArray(tokens) || tokens.length === 0) {
       return { success: true, sent: 0, failed: 0 };
@@ -27,15 +27,23 @@ export class PushNotificationService {
     }
 
     // Crear mensajes
-    const messages: ExpoPushMessage[] = validTokens.map((token) => ({
-      to: token,
-      sound: "default",
-      title,
-      body,
-      badge: 1,
-      data,
-      ...(subtitle && { subtitle }),
-    }));
+    const messages: ExpoPushMessage[] = validTokens.map((token) => {
+      const message: ExpoPushMessage = {
+        to: token,
+        sound: "default",
+        title,
+        body,
+        badge: 1,
+        ...(subtitle && { subtitle }),
+      };
+
+      // Solo agregar data si no es null
+      if (data !== null) {
+        message.data = data;
+      }
+
+      return message;
+    });
 
     try {
       const chunks = this.expo.chunkPushNotifications(messages);
@@ -66,15 +74,15 @@ export class PushNotificationService {
     groupName: string,
     seriesName: string,
     userTokens: string[],
-    addedByUser: string = null
+    addedByUserName: string = null
   ) {
-    const title = "Nueva serie añadida";
-    const body = `${seriesName} se añadió al grupo ${groupName}`;
+    const title = "Nueva Serie!";
+    const body = `${seriesName}: ${addedByUserName} ha añadido al grupo ${groupName}`;
     const data = {
       type: "series_added",
       groupName,
       seriesName,
-      addedByUser,
+      addedByUserName,
       timestamp: new Date().toISOString(),
     };
 
@@ -82,7 +90,7 @@ export class PushNotificationService {
       userTokens,
       title,
       body,
-      "Serie añadida al grupo",
+      "", // Subtítulo vacío
       data
     );
   }
@@ -92,15 +100,15 @@ export class PushNotificationService {
     groupName: string,
     seriesName: string,
     userTokens: string[],
-    removedByUser: string = null
+    removedByUserName: string = null
   ) {
-    const title = "Serie eliminada";
-    const body = `${seriesName} se eliminó del grupo ${groupName}`;
+    const title = "Serie Eliminada!";
+    const body = `${seriesName}: ${removedByUserName} ha eliminado del grupo ${groupName}`;
     const data = {
       type: "series_removed",
       groupName,
       seriesName,
-      removedByUser,
+      removedByUserName,
       timestamp: new Date().toISOString(),
     };
 
@@ -108,7 +116,7 @@ export class PushNotificationService {
       userTokens,
       title,
       body,
-      "Serie eliminada del grupo",
+      "", // Subtítulo vacío
       data
     );
   }
@@ -117,16 +125,21 @@ export class PushNotificationService {
   async notifyCommentAdded(
     groupName: string,
     seriesName: string,
-    username: string,
-    userTokens: string[]
+    userName: string,
+    userTokens: string[],
+    commentMessage?: string
   ) {
-    const title = "Nuevo comentario";
-    const body = `${username} comentó en ${seriesName}`;
+    const title = "Nuevo Comentario!";
+    const body = commentMessage
+      ? `${userName} - ${commentMessage}`
+      : `${userName} comentó en ${seriesName}`;
+    const subtitle = `${groupName}: ${seriesName}`;
     const data = {
       type: "comment_added",
       groupName,
       seriesName,
-      username,
+      userName,
+      commentMessage,
       timestamp: new Date().toISOString(),
     };
 
@@ -134,7 +147,7 @@ export class PushNotificationService {
       userTokens,
       title,
       body,
-      "Comentario en serie",
+      subtitle,
       data
     );
   }
@@ -144,29 +157,33 @@ export class PushNotificationService {
     groupName: string,
     seriesName: string,
     episodeNumber: number,
-    username: string,
+    seasonNumber: number,
+    userName: string,
     userTokens: string[],
     groupId?: number,
     seriesId?: number
   ) {
-    const title = "Episodio marcado como visto";
-    const body = `${username} marcó el episodio ${episodeNumber} de ${seriesName} como visto`;
+    const title = "Capitulo visto!";
+    const body = `${userName}: Temporada ${seasonNumber}. Capitulo ${episodeNumber}`;
+    const subtitle = `${groupName}: ${seriesName}`;
     const data = {
       type: "episode_watched",
       groupName,
       seriesName,
       episodeNumber,
-      username,
+      userName,
       timestamp: new Date().toISOString(),
       seriesId,
       groupId,
     };
 
+    console.log("data push notification", data);
+
     return this.sendPushNotificationToMultiple(
       userTokens,
       title,
       body,
-      "Progreso actualizado",
+      subtitle,
       data
     );
   }
@@ -200,15 +217,15 @@ export class PushNotificationService {
   // Notificación cuando se crea un nuevo grupo
   async notifyGroupCreated(
     groupName: string,
-    adminUsername: string,
+    adminUserName: string,
     userTokens: string[]
   ) {
-    const title = "Nuevo grupo creado";
-    const body = `${adminUsername} te invitó al grupo ${groupName}`;
+    const title = "Grupo Nuevo!";
+    const body = `${adminUserName} te ha añadido al grupo: ${groupName}`;
     const data = {
       type: "group_created",
       groupName,
-      adminUsername,
+      adminUserName,
       timestamp: new Date().toISOString(),
     };
 
@@ -216,7 +233,7 @@ export class PushNotificationService {
       userTokens,
       title,
       body,
-      "Invitación a grupo",
+      "", // Subtítulo vacío
       data
     );
   }

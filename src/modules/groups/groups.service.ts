@@ -227,9 +227,12 @@ export class GroupsService {
         // Obtener información del admin
         const admin = await this.usersService.findById(adminId);
 
+        // Obtener nombre completo del admin
+        const adminUserName = admin?.name || admin?.username || "Usuario";
+
         await this.pushNotificationService.notifyGroupCreated(
           savedGroup.name,
-          admin?.username || "Usuario",
+          adminUserName,
           memberTokens
         );
 
