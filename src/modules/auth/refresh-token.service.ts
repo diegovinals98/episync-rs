@@ -1,25 +1,30 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan, MoreThan } from 'typeorm';
-import { RefreshToken } from './entities/refresh-token.entity';
-import * as bcrypt from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
+import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import * as bcrypt from "bcryptjs";
+import { LessThan, MoreThan, Repository } from "typeorm";
+import { v4 as uuidv4 } from "uuid";
+import { RefreshToken } from "./entities/refresh-token.entity";
 
 @Injectable()
 export class RefreshTokenService {
   constructor(
     @InjectRepository(RefreshToken)
-    private refreshTokenRepository: Repository<RefreshToken>,
+    private refreshTokenRepository: Repository<RefreshToken>
   ) {}
 
-  async createRefreshToken(userId: number, expiresIn: number, deviceInfo?: string, ipAddress?: string): Promise<string> {
+  async createRefreshToken(
+    userId: number,
+    expiresIn: number,
+    deviceInfo?: string,
+    ipAddress?: string
+  ): Promise<string> {
     // Generar un token único
     const token = uuidv4();
-    
+
     // Calcular la fecha de expiración
     const expiresAt = new Date();
     expiresAt.setTime(expiresAt.getTime() + expiresIn * 1000);
-    
+
     // Crear el registro en la base de datos
     await this.refreshTokenRepository.save({
       user_id: userId,
@@ -28,11 +33,14 @@ export class RefreshTokenService {
       device_info: deviceInfo,
       ip_address: ipAddress,
     });
-    
+
     return token;
   }
 
-  async findTokenRecord(userId: number, token: string): Promise<RefreshToken | null> {
+  async findTokenRecord(
+    userId: number,
+    token: string
+  ): Promise<RefreshToken | null> {
     // Buscar tokens activos para el usuario
     const refreshTokens = await this.refreshTokenRepository.find({
       where: {
@@ -41,7 +49,7 @@ export class RefreshTokenService {
         expires_at: MoreThan(new Date()), // No expirados
       },
     });
-    
+
     // Verificar si alguno de los tokens coincide
     for (const refreshToken of refreshTokens) {
       const isValid = await bcrypt.compare(token, refreshToken.token);
@@ -49,7 +57,7 @@ export class RefreshTokenService {
         return refreshToken;
       }
     }
-    
+
     return null;
   }
 
@@ -58,18 +66,22 @@ export class RefreshTokenService {
     return tokenRecord !== null;
   }
 
-  async validateAndRotateToken(token: string, deviceInfo?: string, ipAddress?: string): Promise<{ userId: number, newToken: string }> {
+  async validateAndRotateToken(
+    token: string,
+    deviceInfo?: string,
+    ipAddress?: string
+  ): Promise<{ userId: number; newToken: string }> {
     // Buscar todos los tokens no revocados
     const allTokens = await this.refreshTokenRepository.find({
       where: {
         revoked: false,
       },
     });
-    
+
     // Buscar el token específico
     let foundToken: RefreshToken | null = null;
     let userId: number | null = null;
-    
+
     for (const refreshToken of allTokens) {
       const isValid = await bcrypt.compare(token, refreshToken.token);
       if (isValid) {
@@ -78,22 +90,27 @@ export class RefreshTokenService {
         break;
       }
     }
-    
+
     // Si no se encuentra el token o está expirado
     if (!foundToken || foundToken.expires_at < new Date()) {
-      throw new UnauthorizedException('Invalid or expired refresh token');
+      throw new UnauthorizedException("Invalid or expired refresh token");
     }
-    
+
     // Revocar el token actual
-    await this.refreshTokenRepository.update(foundToken.id, { 
+    await this.refreshTokenRepository.update(foundToken.id, {
       revoked: true,
-      updated_at: new Date()
+      updated_at: new Date(),
     });
-    
+
     // Crear un nuevo token (rotación de tokens)
     const expiresIn = 7 * 24 * 60 * 60; // 7 días en segundos
-    const newToken = await this.createRefreshToken(userId, expiresIn, deviceInfo, ipAddress);
-    
+    const newToken = await this.createRefreshToken(
+      userId,
+      expiresIn,
+      deviceInfo,
+      ipAddress
+    );
+
     return { userId, newToken };
   }
 
@@ -105,14 +122,14 @@ export class RefreshTokenService {
         revoked: false,
       },
     });
-    
+
     // Revocar el token específico
     for (const refreshToken of refreshTokens) {
       const isValid = await bcrypt.compare(token, refreshToken.token);
       if (isValid) {
-        await this.refreshTokenRepository.update(refreshToken.id, { 
+        await this.refreshTokenRepository.update(refreshToken.id, {
           revoked: true,
-          updated_at: new Date()
+          updated_at: new Date(),
         });
         break;
       }
@@ -131,9 +148,9 @@ export class RefreshTokenService {
     // Eliminar tokens expirados más antiguos que 30 días
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - 30);
-    
+
     await this.refreshTokenRepository.delete({
       expires_at: LessThan(cutoffDate),
     });
   }
-} 
+}
